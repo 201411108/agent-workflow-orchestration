@@ -1,18 +1,20 @@
 ---
 name: role-developer
 description: >-
-  기획/디자인 산출물을 코드 변경으로 연결하고 검증 결과까지 정리하는
-  implementation 역할 스킬.
+  articulate.md와 designs.md를 구현 가능한 specs.md로 정리하고, 이를 기반으로
+  코드 변경과 검증 결과를 연결하는 implementation 역할 스킬.
 inputs:
   required:
     - user_request
   optional:
-    - planner_handoff
-    - designer_handoff
+    - articulate_handoff
+    - designs_handoff
     - project_rules
     - specs_context
+    - existing_specs_doc
 outputs:
   required:
+    - specs_doc
     - change_summary
     - verification
     - followups
@@ -31,7 +33,8 @@ fallbacks:
 
 # Role: Developer
 
-목표는 요구사항을 만족하는 코드를 작성하고, 실제로 무엇을 검증했는지 명확히 남기는 것이다.
+목표는 `articulate.md`와 `designs.md`를 코드 작업 가능한 `specs.md`로 압축하고, 실제 구현과 검증 결과를 명확히 남기는 것이다.
+`specs.md`는 AI에 그대로 넣었을 때 구현 계획과 코드 산출물이 나올 수 있을 만큼 구체적이어야 한다.
 
 ## Inputs
 
@@ -41,15 +44,27 @@ fallbacks:
 
 ### Optional
 
-- `planner_handoff`
-- `designer_handoff`
-- `project_rules`
-- `specs_context`
+- `articulate_handoff`: 제품 의도, 대상, 목표, 제약
+- `designs_handoff`: 사용자 흐름, UI 상태, 접근성, 디자인 결정
+- `project_rules`: 프로젝트 규칙
+- `specs_context`: 관련 ADS 문서 요약
+- `existing_specs_doc`: 기존 `features/{feature-name}/specs.md`
 
 ## Outputs
 
 ```markdown
 ## 개발 결과
+
+### specs_doc
+- feature:
+- implementation_goal:
+- scope:
+- interfaces_and_contracts:
+- behavior:
+- edge_cases:
+- verification_plan:
+- ai_implementation_notes:
+- status: [Draft | Ready for implementation | Implemented | Deprecated]
 
 ### change_summary
 - 변경 목표:
@@ -68,12 +83,12 @@ fallbacks:
 
 ## Workflow
 
-1. planner/designer 산출물이 있으면 체크리스트로 압축한다.
-2. 관련 코드와 인접 패턴을 먼저 읽는다.
-3. 프로젝트 규칙 파일이 있으면 따르고, 없으면 인접 구현을 우선 기준으로 삼는다.
-4. 코드 변경 후 lint/test/typecheck 중 가능한 검증을 실행한다.
-5. 검증 불가 항목은 숨기지 말고 `verification`에 명시한다.
-6. target-specific specs 디렉터리가 있으면 변경 기록과 구현 노트를 남긴다.
+1. `articulate.md`와 `designs.md` 또는 각 handoff를 먼저 읽고 구현 체크리스트로 압축한다.
+2. 기존 `specs.md`가 있으면 갱신 모드로 전환한다.
+3. 관련 코드와 인접 패턴을 읽고 실제 프로젝트 구조에 맞는 인터페이스, 상태, 데이터, 테스트 기준을 정리한다.
+4. 구현 전 또는 구현 중 사용자 논의로 요구사항이 바뀌면 `articulate.md`, `designs.md`, `specs.md` 중 영향을 받는 문서를 갱신 대상으로 표시한다.
+5. 코드 변경 후 lint/test/typecheck 중 가능한 검증을 실행한다.
+6. 구현 완료 후 target-specific specs의 `changes/`에 실제 변경 기록과 검증 결과를 남긴다.
 
 ## Tool Guidance
 
@@ -89,5 +104,5 @@ fallbacks:
 
 ## Notes
 
-- “검증 완료”는 실제로 실행한 항목만 쓴다.
+- "검증 완료"는 실제로 실행한 항목만 쓴다.
 - 새로운 패턴 도입보다 기존 코드와의 일관성을 우선한다.

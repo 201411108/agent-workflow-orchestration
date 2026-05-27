@@ -34,6 +34,7 @@
     "bin/",
     "skills/",
     "templates/",
+    "docs/",
     "scripts/",
     "agent-workflow.manifest.json",
     "README.md",

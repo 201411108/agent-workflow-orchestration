@@ -2,8 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+Korean changelog: [`docs/CHANGELOG.ko.md`](docs/CHANGELOG.ko.md).
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+- ADS feature workflow with `articulate.md`, `designs.md`, and `specs.md` templates
+- `feature --name` CLI command for feature-level ADS document scaffolding
+- English primary README with linked Korean documentation
+
+### Changed
+
+- Updated role contracts around planner-driven articulate, designer-owned designs, and developer-owned specs
+- Updated smoke tests to verify target-specific ADS scaffolding
 
 ## [1.0.0] - 2026-03-30
 

@@ -12,6 +12,11 @@ const MANIFEST_PATH = path.join(ROOT_DIR, "agent-workflow.manifest.json");
 const STATE_DIRNAME = ".agent-workflow";
 const STATE_FILENAME = "state.json";
 const SPECS_SUBDIRS = ["features", "changes", "decisions"];
+const FEATURE_DOC_TEMPLATES = [
+  ["articulate.md", "articulate-template.md"],
+  ["designs.md", "designs-template.md"],
+  ["specs.md", "development-spec-template.md"],
+];
 const TARGETS = ["cursor", "codex", "claude"];
 
 const args = process.argv.slice(2);
@@ -20,6 +25,7 @@ const command = showHelp ? "help" : args.find((arg) => !arg.startsWith("-")) || 
 const force = args.includes("--force");
 const global = args.includes("--global");
 const target = getArgValue("--target") || "cursor";
+const featureName = getArgValue("--name");
 const cwd = process.cwd();
 
 function getArgValue(flag) {
@@ -117,6 +123,27 @@ function writeFileIfChanged(filePath, contents) {
   }
   fs.writeFileSync(filePath, contents);
   return true;
+}
+
+function renderTemplate(templateName, replacements) {
+  let contents = readText(path.join(TEMPLATES_DIR, templateName));
+  for (const [token, value] of Object.entries(replacements)) {
+    contents = contents.replaceAll(token, value);
+  }
+  return contents;
+}
+
+function validateFeatureName(name) {
+  if (!name) {
+    console.error("  Missing required option: --name {feature-slug}");
+    process.exit(1);
+  }
+  if (!/^[a-zA-Z0-9_][a-zA-Z0-9._-]*$/.test(name)) {
+    console.error(`  Invalid feature name: ${name}`);
+    console.error("  Use letters, numbers, dots, underscores, or hyphens. Do not include path separators.");
+    process.exit(1);
+  }
+  return name;
 }
 
 function copyDirSync(src, dest) {
@@ -339,11 +366,43 @@ function list() {
 }
 
 function renderSpecsReadme(adapter) {
-  const template = readText(path.join(TEMPLATES_DIR, "specs-readme.md"));
-  return template
-    .replaceAll("{{SPECS_PATH}}", adapter.projectPaths.specsDir)
-    .replaceAll("{{TARGET_LABEL}}", adapter.label)
-    .replaceAll("{{TARGET_NAME}}", adapter.target);
+  return renderTemplate("specs-readme.md", {
+    "{{SPECS_PATH}}": adapter.projectPaths.specsDir,
+    "{{TARGET_LABEL}}": adapter.label,
+    "{{TARGET_NAME}}": adapter.target,
+  });
+}
+
+function ensureSpecsSubdirs(paths) {
+  fs.mkdirSync(paths.specsDir, { recursive: true });
+  for (const sub of SPECS_SUBDIRS) {
+    const subDir = path.join(paths.specsDir, sub);
+    fs.mkdirSync(subDir, { recursive: true });
+    writeFileIfChanged(path.join(subDir, ".gitkeep"), "");
+  }
+}
+
+function writeFeatureDocs(paths, name) {
+  const safeName = validateFeatureName(name);
+  const featureDir = path.join(paths.specsDir, "features", safeName);
+  let created = 0;
+  let skipped = 0;
+
+  for (const [fileName, templateName] of FEATURE_DOC_TEMPLATES) {
+    const didWrite = writeFileIfChanged(
+      path.join(featureDir, fileName),
+      renderTemplate(templateName, {
+        "{feature-name}": safeName,
+      })
+    );
+    if (didWrite) {
+      created++;
+    } else {
+      skipped++;
+    }
+  }
+
+  return { featureDir, created, skipped };
 }
 
 function init() {
@@ -373,19 +432,10 @@ function init() {
     return;
   }
 
-  fs.mkdirSync(paths.specsDir, { recursive: true });
-
-  for (const sub of SPECS_SUBDIRS) {
-    const subDir = path.join(paths.specsDir, sub);
-    fs.mkdirSync(subDir, { recursive: true });
-    writeFileIfChanged(path.join(subDir, ".gitkeep"), "");
-  }
+  ensureSpecsSubdirs(paths);
 
   writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter));
-  writeFileIfChanged(
-    path.join(paths.specsDir, "features", "_example-feature.md"),
-    readText(path.join(TEMPLATES_DIR, "feature-template.md"))
-  );
+  writeFeatureDocs(paths, "_example-feature");
   writeFileIfChanged(
     path.join(paths.specsDir, "changes", "_example-change.md"),
     readText(path.join(TEMPLATES_DIR, "change-template.md"))
@@ -400,6 +450,46 @@ function init() {
   console.log(`  [created] ${adapter.projectPaths.specsDir}`);
   console.log("  [created] example docs");
   console.log("\n  Done. Target-specific specs are ready.\n");
+}
+
+function feature() {
+  const adapter = loadAdapter(target);
+  const paths = getTargetPaths(adapter);
+  const currentState = loadProjectState();
+  const safeName = validateFeatureName(featureName);
+
+  if (global) {
+    console.error("  feature does not support --global. Use a project directory.");
+    process.exit(1);
+  }
+
+  ensureProjectTargetAllowed(adapter.target);
+
+  if (force && currentState.activeTarget && currentState.activeTarget !== adapter.target) {
+    removeTargetArtifacts(currentState.activeTarget);
+    updateProjectState(currentState.activeTarget, false);
+  }
+
+  console.log(`\n  ${adapter.label} Feature Scaffold\n`);
+  console.log(`  Project: ${cwd}`);
+  console.log(`  Target: ${adapter.target}`);
+  console.log(`  Feature: ${safeName}\n`);
+
+  ensureSpecsSubdirs(paths);
+  if (!fs.existsSync(path.join(paths.specsDir, "README.md"))) {
+    writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter));
+  }
+
+  const result = writeFeatureDocs(paths, safeName);
+
+  updateProjectState(adapter.target, true);
+
+  console.log(`  [created] ${path.relative(cwd, result.featureDir)}`);
+  console.log(`  Done: ${result.created} written, ${result.skipped} skipped.`);
+  if (result.skipped > 0 && !force) {
+    console.log("  Tip: Use --force to overwrite existing feature docs.");
+  }
+  console.log();
 }
 
 function validateSkill(skillName, manifestEntry) {
@@ -492,6 +582,19 @@ function validate() {
     }
   }
 
+  for (const templateName of [
+    "articulate-template.md",
+    "designs-template.md",
+    "development-spec-template.md",
+    "specs-readme.md",
+    "change-template.md",
+    "decision-template.md",
+  ]) {
+    if (!fs.existsSync(path.join(TEMPLATES_DIR, templateName))) {
+      failures.push(`missing template: templates/${templateName}`);
+    }
+  }
+
   if (failures.length > 0) {
     for (const failure of failures) {
       console.error(`  [fail] ${failure}`);
@@ -573,12 +676,14 @@ function help() {
     install    Install role files for a target adapter
     uninstall  Remove installed role files for a target adapter
     init       Initialize target-specific specs docs
+    feature    Create articulate/designs/specs docs for one feature
     list       Show installation status for one or all targets
     validate   Validate core roles, adapters, and package metadata
     doctor     Inspect the current project for target-specific readiness
 
   Options:
     --target   cursor | codex | claude (default: cursor)
+    --name     Feature slug for the feature command
     --global   Install to the target's global home directory
     --force    Overwrite existing files or switch active target
     --help     Show this help message
@@ -587,6 +692,7 @@ function help() {
     npx @hankim.dev/agent-workflow-orchestration install --target cursor
     npx @hankim.dev/agent-workflow-orchestration install --target codex
     npx @hankim.dev/agent-workflow-orchestration init --target claude
+    npx @hankim.dev/agent-workflow-orchestration feature --target cursor --name user-onboarding
     npx @hankim.dev/agent-workflow-orchestration doctor --target codex
     npx @hankim.dev/agent-workflow-orchestration validate
   `);
@@ -601,6 +707,9 @@ switch (command) {
     break;
   case "init":
     init();
+    break;
+  case "feature":
+    feature();
     break;
   case "list":
     list();

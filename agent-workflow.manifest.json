@@ -18,9 +18,7 @@
       "name": "role-planner",
       "requiredInputs": ["user_request"],
       "requiredOutputs": [
-        "requirements",
-        "edge_cases",
-        "references",
+        "articulate_doc",
         "open_questions",
         "handoff_notes"
       ],
@@ -31,9 +29,8 @@
       "name": "role-designer",
       "requiredInputs": ["user_request"],
       "requiredOutputs": [
-        "audit_findings",
-        "design_decisions",
-        "implementation_guidance",
+        "designs_doc",
+        "design_risks",
         "handoff_notes"
       ],
       "requiredTools": ["file_read"],
@@ -42,7 +39,7 @@
     {
       "name": "role-developer",
       "requiredInputs": ["user_request"],
-      "requiredOutputs": ["change_summary", "verification", "followups"],
+      "requiredOutputs": ["specs_doc", "change_summary", "verification", "followups"],
       "requiredTools": ["file_read", "file_edit"],
       "optionalTools": ["text_search", "lint_runner", "test_runner", "task_subagent"]
     }

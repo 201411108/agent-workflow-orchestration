@@ -9,7 +9,9 @@
 
 ## 관련 기획
 
-- 기획 문서: `features/{feature-name}.md` (없으면 생략)
+- Articulate: `features/{feature-name}/articulate.md`
+- Designs: `features/{feature-name}/designs.md`
+- Specs: `features/{feature-name}/specs.md`
 
 ## 변경 파일
 

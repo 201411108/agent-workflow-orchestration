@@ -31,6 +31,12 @@ function assertExists(filePath) {
   }
 }
 
+function assertNotExists(filePath) {
+  if (fs.existsSync(filePath)) {
+    throw new Error(`unexpected path exists: ${filePath}`);
+  }
+}
+
 function assertIncludes(text, token) {
   if (!text.includes(token)) {
     throw new Error(`expected output to include "${token}"`);
@@ -55,12 +61,22 @@ function cleanup(dir) {
 function smokeTarget(target, rootDir, roleFileName, targetDir) {
   run(["install", "--target", target], rootDir);
   run(["init", "--target", target], rootDir);
+  const feature = run(["feature", "--target", target, "--name", "user-onboarding"], rootDir);
+  const rerun = run(["feature", "--target", target, "--name", "user-onboarding"], rootDir);
   run(["doctor", "--target", target], rootDir);
 
   assertExists(path.join(rootDir, targetDir, "skills", "role-orchestrator", roleFileName));
   assertExists(path.join(rootDir, targetDir, "specs", "README.md"));
-  assertExists(path.join(rootDir, targetDir, "specs", "features", "_example-feature.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "_example-feature", "articulate.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "_example-feature", "designs.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "_example-feature", "specs.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "user-onboarding", "articulate.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "user-onboarding", "designs.md"));
+  assertExists(path.join(rootDir, targetDir, "specs", "features", "user-onboarding", "specs.md"));
+  assertNotExists(path.join(rootDir, targetDir, "specs", "features", "_example-feature.md"));
   assertExists(path.join(rootDir, ".agent-workflow", "state.json"));
+  assertIncludes(feature.stdout, "3 written, 0 skipped");
+  assertIncludes(rerun.stdout, "0 written, 3 skipped");
 
   run(["uninstall", "--target", target], rootDir);
 }
@@ -87,6 +103,9 @@ try {
     throw new Error("cursor target artifacts should be removed after force switching to codex");
   }
   assertExists(path.join(conflictFixture, ".codex", "skills", "role-orchestrator", "AGENT.md"));
+
+  const invalidFeature = run(["feature", "--target", "codex", "--name", "../bad"], conflictFixture, true);
+  assertIncludes(invalidFeature.stderr || invalidFeature.stdout, "Invalid feature name");
 
   console.log("Fixture smoke test passed.");
 } finally {
