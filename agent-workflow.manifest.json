@@ -11,6 +11,9 @@
         "role_handoff_blocks",
         "final_summary"
       ],
+      "mutationPolicy": "docs-only",
+      "handoffInputs": ["user_request", "workflow_state"],
+      "handoffOutputs": ["role_handoff_blocks", "final_summary"],
       "requiredTools": ["file_read"],
       "optionalTools": ["glob_search", "text_search"]
     },
@@ -22,6 +25,9 @@
         "open_questions",
         "handoff_notes"
       ],
+      "mutationPolicy": "docs-only",
+      "handoffInputs": ["user_request", "evidence_report"],
+      "handoffOutputs": ["articulate_doc", "handoff_notes"],
       "requiredTools": ["file_read"],
       "optionalTools": ["web_search", "glob_search", "structured_question"]
     },
@@ -33,6 +39,9 @@
         "design_risks",
         "handoff_notes"
       ],
+      "mutationPolicy": "docs-only",
+      "handoffInputs": ["articulate_doc"],
+      "handoffOutputs": ["designs_doc", "handoff_notes"],
       "requiredTools": ["file_read"],
       "optionalTools": ["browser", "text_search"]
     },
@@ -40,8 +49,41 @@
       "name": "role-developer",
       "requiredInputs": ["user_request"],
       "requiredOutputs": ["specs_doc", "change_summary", "verification", "followups"],
+      "mutationPolicy": "implementation",
+      "handoffInputs": ["articulate_doc", "designs_doc", "architecture_assessment"],
+      "handoffOutputs": ["change_summary", "verification"],
       "requiredTools": ["file_read", "file_edit"],
       "optionalTools": ["text_search", "lint_runner", "test_runner", "task_subagent"]
+    },
+    {
+      "name": "role-researcher",
+      "requiredInputs": ["user_request"],
+      "requiredOutputs": ["evidence_report", "unknowns", "handoff_notes"],
+      "mutationPolicy": "none",
+      "handoffInputs": ["user_request", "workflow_state"],
+      "handoffOutputs": ["evidence_report", "unknowns", "handoff_notes"],
+      "requiredTools": ["file_read"],
+      "optionalTools": ["glob_search", "text_search", "web_search"]
+    },
+    {
+      "name": "role-architect",
+      "requiredInputs": ["user_request"],
+      "requiredOutputs": ["architecture_assessment", "decision_candidates", "risks", "handoff_notes"],
+      "mutationPolicy": "none",
+      "handoffInputs": ["articulate_doc", "designs_doc", "evidence_report"],
+      "handoffOutputs": ["architecture_assessment", "decision_candidates", "risks", "handoff_notes"],
+      "requiredTools": ["file_read"],
+      "optionalTools": ["glob_search", "text_search"]
+    },
+    {
+      "name": "role-reviewer",
+      "requiredInputs": ["user_request"],
+      "requiredOutputs": ["verdict", "findings", "acceptance_check", "required_followups"],
+      "mutationPolicy": "none",
+      "handoffInputs": ["specs_doc", "change_summary", "verification"],
+      "handoffOutputs": ["verdict", "findings", "required_followups"],
+      "requiredTools": ["file_read"],
+      "optionalTools": ["glob_search", "text_search", "test_runner"]
     }
   ]
 }

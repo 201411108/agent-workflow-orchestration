@@ -18,6 +18,7 @@ outputs:
     - final_summary
 required_tools:
   - file_read
+mutation_policy: docs-only
 optional_tools:
   - glob_search
   - text_search
@@ -29,7 +30,8 @@ fallbacks:
 # Role: Orchestrator
 
 이 스킬은 실행 엔진이 아니라 ADS 문서 기반 역할 체인 계약을 고정하는 orchestration 레이어다.
-기능 단위 SoT는 `features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
+기능 단위 SoT는 `.agent-workflow/specs/features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
+작업을 재개할 때는 configured continuity storage의 `work-items/{work-id}/work.json`, `handoff.md`, `verification.md`를 먼저 읽는다.
 
 ## Inputs
 
@@ -40,7 +42,7 @@ fallbacks:
 ### Optional
 
 - `project_context`: 현재 프로젝트의 스택, 구조, 제약
-- `specs_context`: target-specific specs 디렉터리에서 읽은 ADS 문서 요약
+- `specs_context`: `.agent-workflow/specs/`에서 읽은 ADS 문서 요약
 - `attached_urls`: 피그마, 이슈, 문서 링크
 
 ## Outputs
@@ -64,7 +66,7 @@ fallbacks:
 - 근거: [1-2줄]
 
 ### active_roles
-- 순서: [role-planner -> role-designer -> role-developer]
+- 순서: [role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer]
 - 제외된 역할: [없으면 "없음"]
 
 ### role_handoff_blocks
@@ -96,25 +98,28 @@ fallbacks:
 
 | 요청 유형 | 활성 역할 |
 |-----------|-----------|
-| 신규 기능 또는 상위 기획 | `role-planner -> role-designer -> role-developer` |
+| 신규 기능 또는 상위 기획 | `role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer` |
 | articulate 작성/수정 | `role-planner` |
 | UI/UX 상세화 | `role-designer -> role-developer` |
 | 구현 specs 작성 | `role-developer` |
 | 코드 구현 | `role-developer` |
 | 버그 수정 | `role-developer` |
 | 리팩토링 | `role-developer` |
-| 복합 요청 | `role-planner -> role-designer -> role-developer` |
+| 복합 요청 | `role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer` |
 
 아래 조건이면 역할을 추가한다:
 
 - 왜/무엇을 위한 기능인지 불명확함: `role-planner`
+- 코드/문서 근거 또는 외부 참고 확인이 필요함: `role-researcher`
 - UI 흐름, 화면, 상태, 접근성 변경 필요: `role-designer`
+- API, 상태, 호환성 또는 구조 결정이 필요함: `role-architect`
 - 구현 계획, 코드 변경, 검증 필요: `role-developer`
+- 구현 결과 또는 구현 전 스펙의 품질 확인이 필요함: `role-reviewer`
 
 ## Execution Rules
 
-1. target-specific specs의 `features/{feature-name}/` 아래 `articulate.md`, `designs.md`, `specs.md`를 우선 확인한다.
-2. 관련 feature 폴더가 없으면 `agent-workflow-orchestration feature --target {target} --name {feature-name}` 생성을 권장한다.
+1. `.agent-workflow/specs/features/{feature-name}/` 아래 `articulate.md`, `designs.md`, `specs.md`를 우선 확인한다.
+2. 관련 feature 폴더가 없으면 `agent-workflow-orchestration feature --name {feature-name}` 생성을 권장한다.
 3. 문서가 누락된 단계부터 역할을 시작한다. 예: `articulate.md`가 없으면 planner부터 시작한다.
 4. 각 역할 실행 결과는 다음 역할의 입력으로 핵심 결정, 리스크, 미결정 질문만 압축 전달한다.
 5. 최종 응답에는 실제로 확인된 문서 상태와 추론을 구분한다.

@@ -14,11 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - ADS feature workflow with `articulate.md`, `designs.md`, and `specs.md` templates
 - `feature --name` CLI command for feature-level ADS document scaffolding
 - English primary README with linked Korean documentation
+- Harness-neutral `.agent-workflow/specs/` storage and resumable work item commands
+- Non-destructive legacy `import` flow for target-specific specs
+- Researcher, architect, and reviewer role contracts
 
 ### Changed
 
 - Updated role contracts around planner-driven articulate, designer-owned designs, and developer-owned specs
 - Updated smoke tests to verify target-specific ADS scaffolding
+- Multiple target adapters may coexist while consuming one shared SoT
+- Target install and uninstall no longer remove unrelated target content
 
 ## [1.0.0] - 2026-03-30
 

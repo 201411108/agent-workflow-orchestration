@@ -4,22 +4,23 @@
 
 [English](../README.md) | 한국어
 
-Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기반 AI 워크플로를 설치하고 운영하기 위한 패키지입니다. 이 패키지는 에이전트 런타임을 제공하지 않습니다. 대신 역할 계약, target별 skill 파일, 그리고 AI가 함께 작성하고 소비하는 문서 기반 Single Source of Truth를 배치합니다.
+Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기반 AI 워크플로를 설치하고 운영하기 위한 패키지입니다. 이 패키지는 에이전트 런타임을 제공하지 않습니다. 대신 역할 계약, target별 skill 파일, 하네스 중립 Single Source of Truth, 재개 가능한 handoff 상태를 배치합니다.
 
 ## 제공하는 것
 
 - [`agent-workflow.manifest.json`](./agent-workflow.manifest.json)에 정의된 플랫폼 중립 역할 계약
 - Cursor, Codex, Claude target adapter
-- orchestrator, planner, designer, developer 역할 파일
+- `role-orchestrator`, `role-researcher`, `role-planner`, `role-designer`, `role-architect`, `role-developer`, `role-reviewer` 역할 파일
 - ADS 기능 문서: `articulate.md`, `designs.md`, `specs.md`
-- `.agent-workflow/state.json`에 기록되는 프로젝트 active target 상태
+- `.agent-workflow/`에 기록되는 공통 specs와 workflow 설정
+- 모델 또는 세션 변경 시 재개할 수 있는 continuity work item
 
 ## ADS Workflow
 
 각 기능은 target specs 디렉터리 아래의 feature 폴더로 관리합니다.
 
 ```text
-.cursor/specs/features/user-onboarding/
+.agent-workflow/specs/features/user-onboarding/
 ├── articulate.md
 ├── designs.md
 └── specs.md
@@ -33,13 +34,13 @@ Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기
 
 ## Targets
 
-| Target | Skills Path | Specs Path | Role File |
+| Target | Skills Path | Shared Specs Path | Role File |
 |--------|-------------|------------|-----------|
-| `cursor` | `.cursor/skills/` | `.cursor/specs/` | `SKILL.md` |
-| `codex` | `.codex/skills/` | `.codex/specs/` | `AGENT.md` |
-| `claude` | `.claude/skills/` | `.claude/specs/` | `CLAUDE.md` |
+| `cursor` | `.cursor/skills/` | `.agent-workflow/specs/` | `SKILL.md` |
+| `codex` | `.codex/skills/` | `.agent-workflow/specs/` | `AGENT.md` |
+| `claude` | `.claude/skills/` | `.agent-workflow/specs/` | `CLAUDE.md` |
 
-프로젝트당 active target은 하나만 허용합니다. 현재 active target은 `.agent-workflow/state.json`에 기록됩니다.
+한 프로젝트에 여러 target 역할 파일을 함께 설치할 수 있으며 모두 동일한 공통 specs와 continuity 상태를 읽습니다.
 
 ## 설치
 
@@ -49,7 +50,7 @@ npx @hankim.dev/agent-workflow-orchestration install --target codex
 npx @hankim.dev/agent-workflow-orchestration install --target claude
 ```
 
-기본 target은 `cursor`입니다. 다른 target이 이미 active 상태이면 `--force`로 전환합니다.
+기본 target은 `cursor`입니다. 다른 target을 추가 설치해도 기존 target 파일이나 specs를 삭제하지 않습니다.
 
 역할 파일은 global 설치도 지원합니다.
 
@@ -59,10 +60,10 @@ npx @hankim.dev/agent-workflow-orchestration install --target cursor --global
 
 ## Specs 초기화
 
-target별 specs 디렉터리와 예시 ADS 문서를 생성합니다.
+공통 specs 디렉터리와 예시 ADS 문서를 생성합니다.
 
 ```bash
-npx @hankim.dev/agent-workflow-orchestration init --target cursor
+npx @hankim.dev/agent-workflow-orchestration init
 ```
 
 생성 구조:
@@ -75,7 +76,9 @@ your-project/
 │   │   ├── role-planner/SKILL.md
 │   │   ├── role-designer/SKILL.md
 │   │   └── role-developer/SKILL.md
-│   └── specs/
+└── .agent-workflow/
+    ├── workflow.json
+    └── specs/
 │       ├── README.md
 │       ├── features/
 │       │   └── _example-feature/
@@ -84,20 +87,18 @@ your-project/
 │       │       └── specs.md
 │       ├── changes/_example-change.md
 │       └── decisions/000-example-decision.md
-└── .agent-workflow/
-    └── state.json
 ```
 
 ## 기능 문서 생성
 
 ```bash
-npx @hankim.dev/agent-workflow-orchestration feature --target cursor --name user-onboarding
+npx @hankim.dev/agent-workflow-orchestration feature --name user-onboarding
 ```
 
 이 명령은 다음 파일을 생성합니다.
 
 ```text
-.cursor/specs/features/user-onboarding/
+.agent-workflow/specs/features/user-onboarding/
 ├── articulate.md
 ├── designs.md
 └── specs.md
@@ -105,12 +106,34 @@ npx @hankim.dev/agent-workflow-orchestration feature --target cursor --name user
 
 기존 기능 문서는 기본적으로 보존됩니다. 덮어쓰려면 `--force`를 사용합니다.
 
+## 연속성 및 이전 문서 반입
+
+기존 target별 specs는 원본을 수정하지 않는 명시적 import로 반입합니다.
+
+```bash
+agent-workflow-orchestration import --from cursor --dry-run
+agent-workflow-orchestration import --from cursor
+```
+
+기능 문서가 존재하면 모델 또는 세션 변경 뒤 이어받을 work item을 만들 수 있습니다.
+
+```bash
+agent-workflow-orchestration work --name implement-onboarding --feature user-onboarding
+agent-workflow-orchestration advance --name implement-onboarding --phase implementation --role role-developer
+agent-workflow-orchestration resume --name implement-onboarding
+```
+
+기본적으로 work item은 `.agent-workflow/.local/` 아래에 저장되어 버전 관리에서 제외됩니다. `.agent-workflow/workflow.json`에서 `"continuity": { "storage": "project" }`를 설정하면 저장소를 통해 공유합니다.
+
 ## CLI
 
 ```bash
 agent-workflow-orchestration install --target cursor
-agent-workflow-orchestration init --target codex
-agent-workflow-orchestration feature --target claude --name payment-retry
+agent-workflow-orchestration install --target codex
+agent-workflow-orchestration init
+agent-workflow-orchestration feature --name payment-retry
+agent-workflow-orchestration work --name payment-retry-implementation --feature payment-retry
+agent-workflow-orchestration resume --name payment-retry-implementation
 agent-workflow-orchestration doctor --target claude
 agent-workflow-orchestration list
 agent-workflow-orchestration validate
@@ -121,8 +144,9 @@ agent-workflow-orchestration validate
 target 준비 상태를 점검합니다.
 
 - target skills 디렉터리
-- target specs 디렉터리
-- active target state
+- 공통 specs와 workflow 설정
+- import 가능한 legacy specs
+- target별 설치된 역할 파일
 - `package.json`의 `lint`, `test`, `typecheck` 스크립트
 
 ### `validate`
@@ -140,7 +164,7 @@ target 준비 상태를 점검합니다.
 
 - `npm run validate`: manifest, role 파일, adapter, template, package metadata를 검증합니다.
 - `npm run check:readme`: 영어/한국어 README 링크와 핵심 명령어 참조를 검증합니다.
-- `npm run test:smoke`: Cursor, Codex, Claude 임시 fixture를 만들고 install/init/feature/doctor/uninstall 동작을 확인합니다.
+- `npm run test:smoke`: 임시 fixture에서 다중 target 설치, 공통 specs, legacy import, continuity resume, doctor, 안전한 uninstall 동작을 확인합니다.
 - `npm run check`: 위 검증을 모두 실행합니다.
 
 미니 프로젝트는 마지막 acceptance test로는 유용하지만, 핵심 워크플로는 자동 fixture test로 검증합니다.

@@ -1,7 +1,7 @@
 # Project Specs (Single Source of Truth)
 
-This folder is the project-level Single Source of Truth for product intent, UX decisions, implementation specs, and implementation history.
-It was generated for `{{TARGET_LABEL}}` at `{{SPECS_PATH}}`.
+This folder is the harness-neutral project Single Source of Truth for product intent, UX decisions, implementation specs, and implementation history.
+It is shared by every installed Cursor, Codex, or Claude role adapter at `{{SPECS_PATH}}`.
 
 ## Folder Layout
 
@@ -28,7 +28,14 @@ Each feature is managed as a three-document loop.
 Create a feature scaffold with:
 
 ```bash
-agent-workflow-orchestration feature --target {{TARGET_NAME}} --name user-onboarding
+agent-workflow-orchestration feature --name user-onboarding
+```
+
+Create resumable work state after a feature exists:
+
+```bash
+agent-workflow-orchestration work --name implement-onboarding --feature user-onboarding
+agent-workflow-orchestration resume --name implement-onboarding
 ```
 
 ## Supporting Documents
@@ -44,6 +51,7 @@ agent-workflow-orchestration feature --target {{TARGET_NAME}} --name user-onboar
 4. During development, update the relevant feature documents when user discussion changes intent, design, or implementation requirements.
 5. Keep `changes/` for actual implementation records and `decisions/` for broader ADRs.
 6. Mark deprecated documents with `Deprecated` in the status line instead of deleting them.
+7. Import legacy target-specific specs only through `import --from <target>`; the source files remain untouched.
 
 ## Example Documents
 

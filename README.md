@@ -4,22 +4,23 @@
 
 English | [한국어](./docs/README.ko.md)
 
-Agent Workflow Orchestration installs a consistent role-based AI workflow for Cursor, Codex, and Claude. It does not provide an agent runtime. Instead, it lays down role contracts, target-specific skill files, and a document-based Single Source of Truth for AI-assisted planning, design, and implementation.
+Agent Workflow Orchestration installs a consistent role-based AI workflow for Cursor, Codex, and Claude. It does not provide an agent runtime. Instead, it lays down role contracts, target-specific skill files, a harness-neutral Single Source of Truth, and resumable handoff state for AI-assisted planning, design, and implementation.
 
 ## What It Provides
 
 - Platform-neutral role contracts in [`agent-workflow.manifest.json`](./agent-workflow.manifest.json)
 - Target adapters for Cursor, Codex, and Claude
-- Role files for orchestrator, planner, designer, and developer workflows
+- Role files for orchestrator, researcher, planner, designer, architect, developer, and reviewer workflows
 - ADS feature documents: `articulate.md`, `designs.md`, and `specs.md`
-- Project state in `.agent-workflow/state.json`
+- Shared project configuration and specs in `.agent-workflow/`
+- Optional local or version-controlled continuity work items for model/session handoff
 
 ## ADS Workflow
 
 Each feature is managed as a folder under the target specs directory:
 
 ```text
-.cursor/specs/features/user-onboarding/
+.agent-workflow/specs/features/user-onboarding/
 ├── articulate.md
 ├── designs.md
 └── specs.md
@@ -33,13 +34,13 @@ The documents are not one-time handoffs. They can be revised during development 
 
 ## Targets
 
-| Target | Skills Path | Specs Path | Role File |
+| Target | Skills Path | Shared Specs Path | Role File |
 |--------|-------------|------------|-----------|
-| `cursor` | `.cursor/skills/` | `.cursor/specs/` | `SKILL.md` |
-| `codex` | `.codex/skills/` | `.codex/specs/` | `AGENT.md` |
-| `claude` | `.claude/skills/` | `.claude/specs/` | `CLAUDE.md` |
+| `cursor` | `.cursor/skills/` | `.agent-workflow/specs/` | `SKILL.md` |
+| `codex` | `.codex/skills/` | `.agent-workflow/specs/` | `AGENT.md` |
+| `claude` | `.claude/skills/` | `.agent-workflow/specs/` | `CLAUDE.md` |
 
-Only one active target is allowed per project. The active target is stored in `.agent-workflow/state.json`.
+Multiple targets can be installed in one project. Their role files read the same harness-neutral specs and continuity state.
 
 ## Install
 
@@ -49,7 +50,7 @@ npx @hankim.dev/agent-workflow-orchestration install --target codex
 npx @hankim.dev/agent-workflow-orchestration install --target claude
 ```
 
-The default target is `cursor`. If another target is already active, use `--force` to switch.
+The default target is `cursor`. Installing another target adds its role files without deleting existing target content.
 
 Global installation is also supported for role files:
 
@@ -59,10 +60,10 @@ npx @hankim.dev/agent-workflow-orchestration install --target cursor --global
 
 ## Initialize Specs
 
-Create the target-specific specs directory and example ADS documents:
+Create the shared specs directory and example ADS documents:
 
 ```bash
-npx @hankim.dev/agent-workflow-orchestration init --target cursor
+npx @hankim.dev/agent-workflow-orchestration init
 ```
 
 Generated structure:
@@ -70,12 +71,18 @@ Generated structure:
 ```text
 your-project/
 ├── .cursor/
-│   ├── skills/
+│   └── skills/
 │   │   ├── role-orchestrator/SKILL.md
+│   │   ├── role-researcher/SKILL.md
 │   │   ├── role-planner/SKILL.md
 │   │   ├── role-designer/SKILL.md
-│   │   └── role-developer/SKILL.md
-│   └── specs/
+│   │   ├── role-architect/SKILL.md
+│   │   ├── role-developer/SKILL.md
+│   │   └── role-reviewer/SKILL.md
+└── .agent-workflow/
+    ├── workflow.json
+    ├── .gitignore
+    └── specs/
 │       ├── README.md
 │       ├── features/
 │       │   └── _example-feature/
@@ -84,20 +91,18 @@ your-project/
 │       │       └── specs.md
 │       ├── changes/_example-change.md
 │       └── decisions/000-example-decision.md
-└── .agent-workflow/
-    └── state.json
 ```
 
 ## Create a Feature
 
 ```bash
-npx @hankim.dev/agent-workflow-orchestration feature --target cursor --name user-onboarding
+npx @hankim.dev/agent-workflow-orchestration feature --name user-onboarding
 ```
 
 This creates:
 
 ```text
-.cursor/specs/features/user-onboarding/
+.agent-workflow/specs/features/user-onboarding/
 ├── articulate.md
 ├── designs.md
 └── specs.md
@@ -105,12 +110,34 @@ This creates:
 
 Existing feature documents are preserved by default. Use `--force` to overwrite them.
 
+## Continuity And Migration
+
+Import existing target-specific specs without changing their source files:
+
+```bash
+agent-workflow-orchestration import --from cursor --dry-run
+agent-workflow-orchestration import --from cursor
+```
+
+Create and resume a work item after its feature exists:
+
+```bash
+agent-workflow-orchestration work --name implement-onboarding --feature user-onboarding
+agent-workflow-orchestration advance --name implement-onboarding --phase implementation --role role-developer
+agent-workflow-orchestration resume --name implement-onboarding
+```
+
+By default, work items are stored below `.agent-workflow/.local/` and excluded from version control. Set `"continuity": { "storage": "project" }` in `.agent-workflow/workflow.json` to share work items through the repository.
+
 ## CLI
 
 ```bash
 agent-workflow-orchestration install --target cursor
-agent-workflow-orchestration init --target codex
-agent-workflow-orchestration feature --target claude --name payment-retry
+agent-workflow-orchestration install --target codex
+agent-workflow-orchestration init
+agent-workflow-orchestration feature --name payment-retry
+agent-workflow-orchestration work --name payment-retry-implementation --feature payment-retry
+agent-workflow-orchestration resume --name payment-retry-implementation
 agent-workflow-orchestration doctor --target claude
 agent-workflow-orchestration list
 agent-workflow-orchestration validate
@@ -121,8 +148,9 @@ agent-workflow-orchestration validate
 Checks target readiness:
 
 - target skills directory
-- target specs directory
-- active target state
+- shared specs and workflow configuration
+- available legacy specs imports
+- installed target role files
 - `package.json` scripts for `lint`, `test`, and `typecheck`
 
 ### `validate`
@@ -140,7 +168,7 @@ You do not need to validate this workflow only by running mini projects. The pac
 
 - `npm run validate`: verifies manifest, role files, adapters, templates, and package metadata.
 - `npm run check:readme`: verifies English/Korean README links and important command references.
-- `npm run test:smoke`: creates temporary fixtures for Cursor, Codex, and Claude, then checks install/init/feature/doctor/uninstall behavior.
+- `npm run test:smoke`: creates temporary fixtures and checks multi-target install, shared specs, legacy import, continuity resume, doctor, and safe uninstall behavior.
 - `npm run check`: runs all of the above.
 
 Mini projects are still useful as final acceptance tests, but the core workflow is covered by automated fixture tests.

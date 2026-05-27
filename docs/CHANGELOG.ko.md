@@ -6,6 +6,17 @@
 
 ## [Unreleased]
 
+### 추가
+
+- `.agent-workflow/specs/` 공통 SoT와 재개 가능한 work item 명령
+- target별 기존 specs를 원본 보존 방식으로 반입하는 `import` 명령
+- researcher, architect, reviewer 역할 계약
+
+### 변경
+
+- 여러 target adapter가 하나의 공통 SoT를 함께 읽을 수 있도록 설치 정책 변경
+- target 설치 및 제거 과정에서 사용자 파일과 specs를 삭제하지 않도록 안전성 강화
+
 ### Added
 
 - `articulate.md`, `designs.md`, `specs.md` 템플릿을 사용하는 ADS 기능 워크플로 추가

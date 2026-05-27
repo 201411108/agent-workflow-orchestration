@@ -18,6 +18,7 @@ outputs:
     - handoff_notes
 required_tools:
   - file_read
+mutation_policy: docs-only
 optional_tools:
   - browser
   - text_search
@@ -41,7 +42,7 @@ fallbacks:
 
 - `articulate_handoff`: planner가 정리한 목적, 대상, 목표, 제약
 - `current_ui_context`: 기존 UI 코드나 화면 구조
-- `existing_designs_doc`: 기존 `features/{feature-name}/designs.md`
+- `existing_designs_doc`: 기존 `.agent-workflow/specs/features/{feature-name}/designs.md`
 - `design_reference_urls`: 피그마, 레퍼런스, 이슈 링크
 
 ## Outputs
@@ -67,7 +68,7 @@ fallbacks:
 ### handoff_notes
 - 개발자에 전달할 핵심:
 - specs 작성 시 확인할 제약:
-- 문서 갱신 위치: `features/{feature-name}/designs.md`
+- 문서 갱신 위치: `.agent-workflow/specs/features/{feature-name}/designs.md`
 ```
 
 ## Workflow

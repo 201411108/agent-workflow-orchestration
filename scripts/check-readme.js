@@ -12,14 +12,18 @@ const expectedStrings = [
   "--target cursor",
   "--target codex",
   "--target claude",
-  "feature --target",
+  "feature --name",
   "articulate.md",
   "designs.md",
   "specs.md",
+  ".agent-workflow/specs",
+  "import --from cursor",
+  "resume --name",
   "agent-workflow.manifest.json",
-  ".agent-workflow/state.json",
+  ".agent-workflow/workflow.json",
   "docs/README.ko.md",
   "role-orchestrator",
+  "role-reviewer",
 ];
 
 const expectedKoreanStrings = [
@@ -27,14 +31,18 @@ const expectedKoreanStrings = [
   "--target cursor",
   "--target codex",
   "--target claude",
-  "feature --target",
+  "feature --name",
   "articulate.md",
   "designs.md",
   "specs.md",
+  ".agent-workflow/specs",
+  "import --from cursor",
+  "resume --name",
   "agent-workflow.manifest.json",
-  ".agent-workflow/state.json",
+  ".agent-workflow/workflow.json",
   "../README.md",
   "role-orchestrator",
+  "role-reviewer",
 ];
 
 const expectedKoreanChangelogStrings = [
