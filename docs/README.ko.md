@@ -246,7 +246,7 @@ npm run check
 ## 요구사항
 
 - Cursor, Codex, Claude 중 하나
-- Node.js >= 14.0.0
+- Node.js >= 14.14.0
 
 ## License
 

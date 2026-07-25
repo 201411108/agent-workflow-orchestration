@@ -250,7 +250,7 @@ npm run check
 ## Requirements
 
 - Cursor, Codex, or Claude
-- Node.js >= 14.0.0
+- Node.js >= 14.14.0
 
 ## License
 
