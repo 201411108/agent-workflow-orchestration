@@ -6,6 +6,21 @@
 
 ## [Unreleased]
 
+### 추가
+
+- 공식 `.agents/skills` 탐색 경로에 프로젝트 전용 Codex
+  `feature-orchestrator` 스킬 추가
+- `.codex/agents`에 읽기 전용 planner·designer와 developer custom agent 추가
+- 프로젝트 multi-agent 설정과 저장소 오케스트레이션 규칙 추가
+- 마이그레이션 노트와 새 세션 스모크 테스트를 포함한 Codex 운영 가이드 추가
+
+### 변경
+
+- Codex 프로젝트 작업이 요청에 필요한 역할만 선택하고 역할 간에 결정, 리스크,
+  미결정 사항, 검증 공백을 압축 전달하도록 변경
+- 설정 커밋 `9b3a24c55ff90135e9de10e464098d4042790c12`을 마이그레이션
+  변경 이력에 기록
+
 ## [1.1.0] - 2026-07-25
 
 ### 추가

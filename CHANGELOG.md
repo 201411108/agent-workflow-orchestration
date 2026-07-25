@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Project-local Codex `feature-orchestrator` skill under the official
+  `.agents/skills` discovery path
+- Read-only planner and designer custom agents plus a developer custom agent
+  under `.codex/agents`
+- Project multi-agent configuration and repository orchestration guidance
+- Codex orchestration operations guide with migration notes and new-session
+  smoke tests
+
+### Changed
+
+- Codex project work now routes only the roles required by the request and
+  passes compressed decisions, risks, unknowns, and verification gaps between
+  roles
+- Migration record references configuration commit
+  `9b3a24c55ff90135e9de10e464098d4042790c12`
+
 ## [1.1.0] - 2026-07-25
 
 ### Added
