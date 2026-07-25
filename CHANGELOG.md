@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Codex project work now routes only the roles required by the request and
   passes compressed decisions, risks, unknowns, and verification gaps between
   roles
+- Standardized the remaining change-record and ADR templates in English
 - Migration record references configuration commit
   `9b3a24c55ff90135e9de10e464098d4042790c12`
 

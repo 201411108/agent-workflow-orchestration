@@ -1,39 +1,39 @@
-# 변경 기록: {title}
+# Change Record: {title}
 
-> 날짜: {YYYY-MM-DD}
-> 유형: 기능 구현 | 버그 수정 | 리팩토링 | UI 개선 | 성능 개선
+> Date: {YYYY-MM-DD}
+> Type: Feature implementation | Bug fix | Refactoring | UI improvement | Performance improvement
 
-## 변경 요약
+## Change Summary
 
-[1-2줄로 핵심 변경 내용 요약]
+[Summarize the key changes in 1-2 lines.]
 
-## 관련 기획
+## Related Documents
 
 - Articulate: `features/{feature-name}/articulate.md`
 - Designs: `features/{feature-name}/designs.md`
 - Specs: `features/{feature-name}/specs.md`
 
-## 변경 파일
+## Changed Files
 
-| 파일 | 변경 유형 | 설명 |
-|------|-----------|------|
-| [경로] | 생성/수정/삭제 | [변경 내용] |
+| File | Change Type | Description |
+|------|-------------|-------------|
+| [path] | Added/Modified/Deleted | [Description of the change] |
 
-## 구현 상세
+## Implementation Details
 
-[주요 구현 결정과 그 근거]
+[Describe the key implementation decisions and their rationale.]
 
-## 엣지 케이스 처리
+## Edge Case Handling
 
-| 케이스 | 처리 방법 |
-|--------|-----------|
-| [케이스] | [구현 방식] |
+| Case | Handling |
+|------|----------|
+| [Case] | [Implementation approach] |
 
-## 검증 결과
+## Verification Results
 
-- Lint: [통과/이슈]
-- 테스트: [통과/추가 필요]
+- Lint: [Passed/Issues]
+- Tests: [Passed/Additional coverage needed]
 
-## 후속 작업
+## Follow-up Work
 
-- [ ] [필요 시 후속 작업 기록]
+- [ ] [Record follow-up work if needed]

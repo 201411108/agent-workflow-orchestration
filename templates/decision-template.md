@@ -1,34 +1,34 @@
-# ADR-{NNN}: {결정 제목}
+# ADR-{NNN}: {Decision Title}
 
-> 날짜: {YYYY-MM-DD}
-> 상태: 제안 | 승인 | 폐기 | 대체됨
-> 대체 문서: (대체된 경우) ADR-{NNN}
+> Date: {YYYY-MM-DD}
+> Status: Proposed | Accepted | Deprecated | Superseded
+> Superseded by: (if applicable) ADR-{NNN}
 
-## 맥락
+## Context
 
-[이 결정이 필요한 배경과 현재 상황을 설명]
+[Describe the background and current situation that require this decision.]
 
-## 결정
+## Decision
 
-[내린 결정을 명확하게 기술]
+[State the decision clearly.]
 
-## 검토한 선택지
+## Considered Options
 
-### 선택지 A: {이름}
+### Option A: {Name}
 
-- 장점: [장점]
-- 단점: [단점]
+- Pros: [Advantages]
+- Cons: [Disadvantages]
 
-### 선택지 B: {이름}
+### Option B: {Name}
 
-- 장점: [장점]
-- 단점: [단점]
+- Pros: [Advantages]
+- Cons: [Disadvantages]
 
-## 선택 근거
+## Rationale
 
-[왜 이 선택지를 골랐는지, 다른 선택지를 배제한 이유]
+[Explain why this option was selected and why the alternatives were rejected.]
 
-## 영향
+## Consequences
 
-- [이 결정으로 인해 영향받는 부분]
-- [예상되는 트레이드오프]
+- [Areas affected by this decision]
+- [Expected trade-offs]
