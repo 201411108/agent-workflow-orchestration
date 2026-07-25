@@ -3,6 +3,10 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
+const http = require("http");
+const https = require("https");
+const semver = require("semver");
 
 const ROOT_DIR = path.join(__dirname, "..");
 const SOURCE_DIR = path.join(ROOT_DIR, "skills");
@@ -13,6 +17,7 @@ const STATE_DIRNAME = ".agent-workflow";
 const WORKFLOW_FILENAME = "workflow.json";
 const LOCAL_STATE_SUBDIR = ".local";
 const STATE_FILENAME = "state.json";
+const GLOBAL_STATE_SUBDIR = ".agent-workflow";
 const CANONICAL_SPECS_SUBDIR = "specs";
 const WORK_ITEMS_SUBDIR = "work-items";
 const LEGACY_STATE_PATH = path.join(STATE_DIRNAME, STATE_FILENAME);
@@ -40,15 +45,18 @@ const WORK_PHASES = [
 ];
 const WORK_STATUSES = ["active", "blocked", "complete"];
 const PHASE_ROLES = {
-  articulate: ["role-planner", "role-designer"],
-  design: ["role-designer", "role-architect"],
+  articulate: ["role-planner", "role-developer"],
+  design: ["role-designer", "role-developer"],
   architecture: ["role-architect", "role-developer"],
   specification: ["role-developer", "role-reviewer"],
   implementation: ["role-developer", "role-reviewer"],
-  review: ["role-reviewer", "role-developer"],
+  review: ["role-reviewer", null],
   verification: ["role-reviewer", null],
   done: [null, null],
 };
+const UPDATE_CHECK_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000;
+const UPDATE_CHECK_FAILURE_TTL_MS = 60 * 60 * 1000;
+const UPDATE_CHECK_TIMEOUT_MS = 800;
 
 const args = process.argv.slice(2);
 const showHelp = args.includes("--help") || args.includes("help");
@@ -62,6 +70,7 @@ const linkedFeature = getArgValue("--feature");
 const sourceTarget = getArgValue("--from");
 const phase = getArgValue("--phase");
 const selectedRole = getArgValue("--role");
+const selectedNextRole = getArgValue("--next-role");
 const selectedStatus = getArgValue("--status");
 const cwd = process.cwd();
 
@@ -83,7 +92,9 @@ function readJson(filePath) {
 
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`);
+  fs.renameSync(temporaryPath, filePath);
 }
 
 function loadManifest() {
@@ -115,10 +126,6 @@ function getWorkflowPath(projectRoot = cwd) {
   return path.join(projectRoot, STATE_DIRNAME, WORKFLOW_FILENAME);
 }
 
-function getCanonicalSpecsPath(projectRoot = cwd) {
-  return path.join(projectRoot, STATE_DIRNAME, CANONICAL_SPECS_SUBDIR);
-}
-
 function getDefaultWorkflow() {
   return {
     schemaVersion: 2,
@@ -130,12 +137,52 @@ function getDefaultWorkflow() {
   };
 }
 
+function fail(message) {
+  console.error(`  ${message}`);
+  process.exit(1);
+}
+
+function resolveProjectRelativePath(relativePath, label, projectRoot = cwd) {
+  if (typeof relativePath !== "string" || relativePath.trim() === "") {
+    fail(`${label} must be a non-empty project-relative path.`);
+  }
+  if (path.isAbsolute(relativePath)) {
+    fail(`${label} must be project-relative, not absolute: ${relativePath}`);
+  }
+  const resolvedRoot = path.resolve(projectRoot);
+  const resolvedPath = path.resolve(resolvedRoot, relativePath);
+  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    fail(`${label} must stay inside the project: ${relativePath}`);
+  }
+  return resolvedPath;
+}
+
+function getProjectRelativePath(filePath, projectRoot = cwd) {
+  return path.relative(projectRoot, filePath).split(path.sep).join("/");
+}
+
+function validateWorkflow(workflow, projectRoot = cwd) {
+  if (!workflow || typeof workflow !== "object") {
+    fail(`${STATE_DIRNAME}/${WORKFLOW_FILENAME} must contain a JSON object.`);
+  }
+  resolveProjectRelativePath(workflow.specsRoot, "workflow.json specsRoot", projectRoot);
+  const storage = workflow.continuity && workflow.continuity.storage;
+  if (storage !== "local" && storage !== "project") {
+    fail('workflow.json continuity.storage must be either "local" or "project".');
+  }
+  return workflow;
+}
+
 function loadWorkflow(projectRoot = cwd) {
   const workflowPath = getWorkflowPath(projectRoot);
   if (!fs.existsSync(workflowPath)) {
-    return getDefaultWorkflow();
+    return validateWorkflow(getDefaultWorkflow(), projectRoot);
   }
-  return readJson(workflowPath);
+  return validateWorkflow(readJson(workflowPath), projectRoot);
+}
+
+function getSpecsPath(workflow = loadWorkflow(), projectRoot = cwd) {
+  return resolveProjectRelativePath(workflow.specsRoot, "workflow.json specsRoot", projectRoot);
 }
 
 function ensureWorkflow(projectRoot = cwd) {
@@ -147,49 +194,70 @@ function ensureWorkflow(projectRoot = cwd) {
   if (!fs.existsSync(ignorePath)) {
     fs.writeFileSync(ignorePath, `${LOCAL_STATE_SUBDIR}/\n`);
   } else if (!readText(ignorePath).split(/\r?\n/).includes(`${LOCAL_STATE_SUBDIR}/`)) {
-    fs.appendFileSync(ignorePath, `${LOCAL_STATE_SUBDIR}/\n`);
+    const contents = readText(ignorePath);
+    fs.appendFileSync(ignorePath, `${contents.endsWith("\n") ? "" : "\n"}${LOCAL_STATE_SUBDIR}/\n`);
   }
   return loadWorkflow(projectRoot);
 }
 
-function loadProjectState(projectRoot = cwd) {
-  const statePath = getProjectStatePath(projectRoot);
+function getGlobalStatePath() {
+  return path.join(os.homedir(), GLOBAL_STATE_SUBDIR, STATE_FILENAME);
+}
+
+function getInstallStatePath(projectRoot = cwd) {
+  return global ? getGlobalStatePath() : getProjectStatePath(projectRoot);
+}
+
+function emptyInstallState() {
+  return {
+    schemaVersion: 2,
+    installedTargets: [],
+    packageVersion: loadManifest().version,
+    targets: {},
+  };
+}
+
+function loadInstallState(projectRoot = cwd) {
+  const statePath = getInstallStatePath(projectRoot);
   const legacyPath = getLegacyProjectStatePath(projectRoot);
-  if (!fs.existsSync(statePath) && fs.existsSync(legacyPath)) {
+  if (!global && !fs.existsSync(statePath) && fs.existsSync(legacyPath)) {
     const legacy = readJson(legacyPath);
     return {
+      schemaVersion: 1,
       installedTargets: legacy.installedTargets || (legacy.activeTarget ? [legacy.activeTarget] : []),
       packageVersion: legacy.packageVersion || loadManifest().version,
       legacyActiveTarget: legacy.activeTarget || null,
+      targets: {},
     };
   }
   if (!fs.existsSync(statePath)) {
-    return {
-      installedTargets: [],
-      packageVersion: loadManifest().version,
-    };
+    return emptyInstallState();
   }
-  return readJson(statePath);
+  const state = readJson(statePath);
+  state.installedTargets = Array.isArray(state.installedTargets) ? state.installedTargets : [];
+  state.targets = state.targets && typeof state.targets === "object" ? state.targets : {};
+  return state;
 }
 
-function saveProjectState(state, projectRoot = cwd) {
-  if (global) {
-    return;
-  }
-  writeJson(getProjectStatePath(projectRoot), state);
+function loadProjectState(projectRoot = cwd) {
+  return loadInstallState(projectRoot);
+}
+
+function saveInstallState(state, projectRoot = cwd) {
+  writeJson(getInstallStatePath(projectRoot), state);
   const legacyPath = getLegacyProjectStatePath(projectRoot);
-  if (fs.existsSync(legacyPath)) {
+  if (!global && fs.existsSync(legacyPath)) {
     fs.rmSync(legacyPath, { force: true });
   }
 }
 
-function removeProjectState(projectRoot = cwd) {
-  const statePath = getProjectStatePath(projectRoot);
+function removeInstallState(projectRoot = cwd) {
+  const statePath = getInstallStatePath(projectRoot);
   if (fs.existsSync(statePath)) {
     fs.rmSync(statePath, { force: true });
   }
   const legacyPath = getLegacyProjectStatePath(projectRoot);
-  if (fs.existsSync(legacyPath)) {
+  if (!global && fs.existsSync(legacyPath)) {
     fs.rmSync(legacyPath, { force: true });
   }
 }
@@ -203,7 +271,7 @@ function getTargetPaths(adapter, projectRoot = cwd) {
   }
   return {
     skillsDir: path.join(projectRoot, adapter.projectPaths.skillsDir),
-    specsDir: getCanonicalSpecsPath(projectRoot),
+    specsDir: getSpecsPath(loadWorkflow(projectRoot), projectRoot),
   };
 }
 
@@ -226,7 +294,7 @@ function writeFileIfChanged(filePath, contents) {
 function renderTemplate(templateName, replacements) {
   let contents = readText(path.join(TEMPLATES_DIR, templateName));
   for (const [token, value] of Object.entries(replacements)) {
-    contents = contents.replaceAll(token, value);
+    contents = contents.split(token).join(value);
   }
   return contents;
 }
@@ -257,10 +325,14 @@ function copyDirSync(src, dest) {
   }
 }
 
-function rmDirSync(dir) {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+function removeDirIfEmpty(dir) {
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+    fs.rmdirSync(dir);
   }
+}
+
+function sha256(contents) {
+  return crypto.createHash("sha256").update(contents).digest("hex");
 }
 
 function parseSkill(skillName) {
@@ -277,10 +349,13 @@ function parseSkill(skillName) {
   };
 }
 
-function renderTargetRoleFile(adapter, skillName) {
+function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
+  const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
+  const specsRoot = workflow.specsRoot.split(path.sep).join("/");
+  const replaceSpecsRoot = (contents) => contents.split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`).join(specsRoot);
   if (adapter.target === "cursor") {
-    return parsed.raw;
+    return replaceSpecsRoot(parsed.raw);
   }
 
   const manifest = loadManifest();
@@ -291,7 +366,7 @@ function renderTargetRoleFile(adapter, skillName) {
   const optionalTools = role ? role.optionalTools.join(", ") : "";
   const headerLabel = adapter.fileName === "CLAUDE.md" ? "Claude Role Contract" : "Codex Role Contract";
 
-  return [
+  return replaceSpecsRoot([
     `# ${headerLabel}: ${title}`,
     "",
     `Target: ${adapter.label}`,
@@ -310,105 +385,242 @@ function renderTargetRoleFile(adapter, skillName) {
     "```",
     "",
     parsed.body,
-  ].join("\n");
+  ].join("\n"));
 }
 
-function updateProjectState(targetName, addTarget, projectRoot = cwd) {
-  if (global) {
-    return;
-  }
-  if (addTarget) {
-    ensureWorkflow(projectRoot);
-  }
-  const state = loadProjectState(projectRoot);
+function getManagedRoleFiles(adapter, projectRoot = cwd) {
+  const paths = getTargetPaths(adapter, projectRoot);
+  return loadManifest().skills.map((role) => {
+    const relativePath = path.join(role.name, adapter.fileName);
+    return {
+      roleName: role.name,
+      relativePath,
+      filePath: path.join(paths.skillsDir, relativePath),
+      contents: renderTargetRoleFile(adapter, role.name, projectRoot),
+    };
+  });
+}
+
+function getTargetState(state, targetName) {
+  return state.targets && state.targets[targetName] ? state.targets[targetName] : null;
+}
+
+function setTargetState(state, targetName, files, installedVersion = loadManifest().version) {
   const installed = new Set(state.installedTargets || []);
-  if (addTarget) {
-    installed.add(targetName);
-  } else {
-    installed.delete(targetName);
-  }
-  const installedTargets = Array.from(installed);
-  const nextState = {
-    installedTargets,
-    packageVersion: loadManifest().version,
+  installed.add(targetName);
+  state.schemaVersion = 2;
+  state.installedTargets = Array.from(installed);
+  state.packageVersion = loadManifest().version;
+  state.targets = state.targets || {};
+  state.targets[targetName] = {
+    installedVersion,
+    files,
   };
-  if (installedTargets.length === 0) {
-    removeProjectState(projectRoot);
-    return;
+}
+
+function removeTargetState(state, targetName, projectRoot = cwd) {
+  const installed = new Set(state.installedTargets || []);
+  installed.delete(targetName);
+  state.installedTargets = Array.from(installed);
+  if (state.targets) {
+    delete state.targets[targetName];
   }
-  saveProjectState(nextState, projectRoot);
+  state.schemaVersion = 2;
+  state.packageVersion = loadManifest().version;
+  if (state.installedTargets.length === 0) {
+    removeInstallState(projectRoot);
+  } else {
+    saveInstallState(state, projectRoot);
+  }
+}
+
+function hashManagedFiles(managedFiles) {
+  const hashes = {};
+  for (const managedFile of managedFiles) {
+    if (fs.existsSync(managedFile.filePath)) {
+      hashes[managedFile.relativePath] = sha256(fs.readFileSync(managedFile.filePath));
+    }
+  }
+  return hashes;
+}
+
+function findManagedFileConflicts(managedFiles, targetState) {
+  const recordedFiles = targetState && targetState.files ? targetState.files : {};
+  const conflicts = [];
+  for (const managedFile of managedFiles) {
+    const recordedHash = recordedFiles[managedFile.relativePath];
+    const exists = fs.existsSync(managedFile.filePath);
+    const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
+    if (!recordedHash && !exists) {
+      continue;
+    }
+    if (!recordedHash || currentHash !== recordedHash) {
+      conflicts.push({
+        filePath: managedFile.filePath,
+        reason: !recordedHash ? "ownership hash is missing" : exists ? "file was modified" : "file is missing",
+      });
+    }
+  }
+  return conflicts;
+}
+
+function printConflicts(conflicts, action) {
+  for (const conflict of conflicts) {
+    console.error(`  [conflict] ${path.relative(cwd, conflict.filePath)} (${conflict.reason})`);
+  }
+  console.error(`\n  ${action} aborted without changes. Re-run with --force to replace package-owned role files.\n`);
+}
+
+function writeManagedFilesAtomically(managedFiles) {
+  const prepared = [];
+  try {
+    for (const managedFile of managedFiles) {
+      fs.mkdirSync(path.dirname(managedFile.filePath), { recursive: true });
+      const temporaryPath = `${managedFile.filePath}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(temporaryPath, managedFile.contents);
+      prepared.push({ ...managedFile, temporaryPath });
+    }
+    for (const managedFile of prepared) {
+      fs.renameSync(managedFile.temporaryPath, managedFile.filePath);
+    }
+  } catch (error) {
+    for (const managedFile of prepared) {
+      if (fs.existsSync(managedFile.temporaryPath)) {
+        fs.rmSync(managedFile.temporaryPath, { force: true });
+      }
+    }
+    throw error;
+  }
 }
 
 function install() {
   const adapter = loadAdapter(target);
+  if (!global) {
+    ensureWorkflow();
+  }
   const paths = getTargetPaths(adapter);
-  const manifest = loadManifest();
+  const managedFiles = getManagedRoleFiles(adapter);
+  const state = loadInstallState();
+  const existingTargetState = getTargetState(state, adapter.target);
 
   console.log(`\n  ${adapter.label} Installer\n`);
   console.log(`  Scope: ${getScopeLabel(adapter)}`);
   console.log(`  Target: ${adapter.target}\n`);
 
-  fs.mkdirSync(paths.skillsDir, { recursive: true });
-
   let installed = 0;
   let skipped = 0;
+  const pending = [];
 
-  for (const role of manifest.skills) {
-    const roleDir = path.join(paths.skillsDir, role.name);
-    const roleFile = path.join(roleDir, adapter.fileName);
-
-    if (fs.existsSync(roleFile) && !force) {
-      console.log(`  [skip] ${role.name} (${adapter.fileName} already exists)`);
+  for (const managedFile of managedFiles) {
+    if (fs.existsSync(managedFile.filePath) && !force) {
+      console.log(`  [skip] ${managedFile.roleName} (${adapter.fileName} already exists)`);
       skipped++;
       continue;
     }
+    pending.push(managedFile);
+  }
 
-    if (force) {
-      rmDirSync(roleDir);
-    }
-
-    writeFileIfChanged(roleFile, renderTargetRoleFile(adapter, role.name));
-    console.log(`  [installed] ${role.name}`);
+  writeManagedFilesAtomically(pending);
+  for (const managedFile of pending) {
+    console.log(`  [installed] ${managedFile.roleName}`);
     installed++;
   }
 
-  if (!global) {
-    updateProjectState(adapter.target, true);
+  const files = existingTargetState && existingTargetState.files ? { ...existingTargetState.files } : {};
+  for (const managedFile of pending) {
+    files[managedFile.relativePath] = sha256(managedFile.contents);
   }
+  const wasRecorded = (state.installedTargets || []).includes(adapter.target);
+  const installedVersion =
+    force || !wasRecorded
+      ? loadManifest().version
+      : (existingTargetState && existingTargetState.installedVersion) || state.packageVersion;
+  setTargetState(state, adapter.target, files, installedVersion);
+  saveInstallState(state);
 
   console.log(`\n  Done: ${installed} installed, ${skipped} skipped.`);
   console.log(`  Role files were written to ${paths.skillsDir}\n`);
 }
 
+function update() {
+  if (global && !args.includes("--target")) {
+    fail("update --global requires --target <target>.");
+  }
+  if (!global) {
+    ensureWorkflow();
+  }
+  const state = loadInstallState();
+  const targetsToUpdate = args.includes("--target") ? [target] : state.installedTargets || [];
+  if (targetsToUpdate.length === 0) {
+    fail("No installed targets were recorded. Run install first.");
+  }
+
+  const batches = [];
+  const conflicts = [];
+  for (const targetName of targetsToUpdate) {
+    if (!TARGETS.includes(targetName)) {
+      fail(`Unknown target in installation state: ${targetName}`);
+    }
+    if (!(state.installedTargets || []).includes(targetName) && !force) {
+      fail(`Target is not recorded as installed: ${targetName}`);
+    }
+    const adapter = loadAdapter(targetName);
+    const managedFiles = getManagedRoleFiles(adapter);
+    if (!force) {
+      conflicts.push(...findManagedFileConflicts(managedFiles, getTargetState(state, targetName)));
+    }
+    batches.push({ adapter, managedFiles });
+  }
+
+  if (conflicts.length > 0) {
+    printConflicts(conflicts, "Update");
+    process.exit(1);
+  }
+
+  console.log("\n  Agent Workflow Update\n");
+  writeManagedFilesAtomically(batches.flatMap((batch) => batch.managedFiles));
+  for (const batch of batches) {
+    setTargetState(state, batch.adapter.target, hashManagedFiles(batch.managedFiles));
+    console.log(`  [updated] ${batch.adapter.target}: ${batch.managedFiles.length} role file(s)`);
+  }
+  saveInstallState(state);
+  console.log(`\n  Done: ${batches.length} target(s) updated to ${loadManifest().version}.\n`);
+}
+
 function uninstall() {
   const adapter = loadAdapter(target);
   const paths = getTargetPaths(adapter);
-  const manifest = loadManifest();
+  const managedFiles = getManagedRoleFiles(adapter);
+  const state = loadInstallState();
+  const hasManagedFiles = managedFiles.some((managedFile) => fs.existsSync(managedFile.filePath));
+  const targetState = getTargetState(state, adapter.target);
+  const conflicts = force || (!targetState && !hasManagedFiles)
+    ? []
+    : findManagedFileConflicts(managedFiles, targetState);
 
   console.log(`\n  ${adapter.label} Uninstaller\n`);
   console.log(`  Scope: ${getScopeLabel(adapter)}`);
   console.log(`  Target: ${adapter.target}\n`);
 
-  let removed = 0;
+  if (conflicts.length > 0) {
+    printConflicts(conflicts, "Uninstall");
+    process.exit(1);
+  }
 
-  for (const role of manifest.skills) {
-    const roleDir = path.join(paths.skillsDir, role.name);
-    if (fs.existsSync(roleDir)) {
-      rmDirSync(roleDir);
-      console.log(`  [removed] ${role.name}`);
+  let removed = 0;
+  for (const managedFile of managedFiles) {
+    if (fs.existsSync(managedFile.filePath)) {
+      fs.rmSync(managedFile.filePath, { force: true });
+      removeDirIfEmpty(path.dirname(managedFile.filePath));
+      console.log(`  [removed] ${managedFile.roleName}`);
       removed++;
     } else {
-      console.log(`  [not found] ${role.name}`);
+      console.log(`  [not found] ${managedFile.roleName}`);
     }
   }
 
-  if (fs.existsSync(paths.skillsDir) && fs.readdirSync(paths.skillsDir).length === 0) {
-    rmDirSync(paths.skillsDir);
-  }
-
-  if (!global) {
-    updateProjectState(adapter.target, false);
-  }
+  removeDirIfEmpty(paths.skillsDir);
+  removeTargetState(state, adapter.target);
 
   console.log(`\n  Done: ${removed} roles removed.\n`);
 }
@@ -421,10 +633,13 @@ function list() {
   if (!global) {
     const state = loadProjectState();
     const workflow = loadWorkflow();
-    const workItemsDir = getWorkItemsPath(workflow);
-    const workItemCount = fs.existsSync(workItemsDir)
-      ? fs.readdirSync(workItemsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
-      : 0;
+    const workItemCount = getWorkItemRoots()
+      .map((workItemsDir) =>
+        fs.existsSync(workItemsDir)
+          ? fs.readdirSync(workItemsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
+          : 0
+      )
+      .reduce((total, count) => total + count, 0);
     console.log(`  [state] installed=${(state.installedTargets || []).join(",") || "-"}`);
     console.log(`  [workflow] specs=${workflow.specsRoot} continuity=${workflow.continuity.storage} work-items=${workItemCount}`);
     console.log();
@@ -444,9 +659,9 @@ function list() {
   }
 }
 
-function renderSpecsReadme(adapter) {
+function renderSpecsReadme(adapter, workflow = loadWorkflow()) {
   return renderTemplate("specs-readme.md", {
-    "{{SPECS_PATH}}": adapter.projectPaths.specsDir,
+    "{{SPECS_PATH}}": workflow.specsRoot,
     "{{TARGET_LABEL}}": adapter.label,
     "{{TARGET_NAME}}": adapter.target,
   });
@@ -486,14 +701,14 @@ function writeFeatureDocs(paths, name) {
 
 function init() {
   const adapter = loadAdapter(target);
-  const paths = getTargetPaths(adapter);
 
   if (global) {
     console.error("  init does not support --global. Use a project directory.");
     process.exit(1);
   }
 
-  ensureWorkflow();
+  const workflow = ensureWorkflow();
+  const paths = getTargetPaths(adapter);
   if (args.includes("--target")) {
     console.log("  [deprecated] --target is ignored by init; specs are shared across all targets.");
   }
@@ -503,14 +718,14 @@ function init() {
   console.log(`  Specs: ${path.relative(cwd, paths.specsDir)}\n`);
 
   if (fs.existsSync(paths.specsDir) && !force) {
-    console.log(`  [skip] ${adapter.projectPaths.specsDir} already exists.`);
+    console.log(`  [skip] ${workflow.specsRoot} already exists.`);
     console.log("  Tip: Use --force to reinitialize.\n");
     return;
   }
 
   ensureSpecsSubdirs(paths);
 
-  writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter));
+  writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter, workflow));
   writeFeatureDocs(paths, "_example-feature");
   writeFileIfChanged(
     path.join(paths.specsDir, "changes", "_example-change.md"),
@@ -528,7 +743,6 @@ function init() {
 
 function feature() {
   const adapter = loadAdapter(target);
-  const paths = getTargetPaths(adapter);
   const safeName = validateFeatureName(featureName);
 
   if (global) {
@@ -536,7 +750,8 @@ function feature() {
     process.exit(1);
   }
 
-  ensureWorkflow();
+  const workflow = ensureWorkflow();
+  const paths = getTargetPaths(adapter);
   if (args.includes("--target")) {
     console.log("  [deprecated] --target is ignored by feature; specs are shared across all targets.");
   }
@@ -547,7 +762,7 @@ function feature() {
 
   ensureSpecsSubdirs(paths);
   if (!fs.existsSync(path.join(paths.specsDir, "README.md"))) {
-    writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter));
+    writeFileIfChanged(path.join(paths.specsDir, "README.md"), renderSpecsReadme(adapter, workflow));
   }
 
   const result = writeFeatureDocs(paths, safeName);
@@ -570,6 +785,29 @@ function getWorkItemsPath(workflow = loadWorkflow(), projectRoot = cwd) {
 function getWorkItemPath(name, projectRoot = cwd) {
   const safeName = validateFeatureName(name);
   return path.join(getWorkItemsPath(loadWorkflow(projectRoot), projectRoot), safeName);
+}
+
+function getWorkItemRoots(projectRoot = cwd) {
+  return [
+    path.join(projectRoot, STATE_DIRNAME, LOCAL_STATE_SUBDIR, WORK_ITEMS_SUBDIR),
+    path.join(projectRoot, STATE_DIRNAME, WORK_ITEMS_SUBDIR),
+  ];
+}
+
+function findWorkItem(name, projectRoot = cwd) {
+  const safeName = validateFeatureName(name);
+  const matches = getWorkItemRoots(projectRoot)
+    .map((rootDir) => path.join(rootDir, safeName))
+    .filter((itemDir) => fs.existsSync(path.join(itemDir, "work.json")));
+  if (matches.length > 1) {
+    console.error(`  Work item id is ambiguous: ${safeName}`);
+    for (const itemDir of matches) {
+      console.error(`  [conflict] ${path.relative(projectRoot, path.join(itemDir, "work.json"))}`);
+    }
+    console.error("\n  Keep only one copy before continuing.\n");
+    process.exit(1);
+  }
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function collectFiles(rootDir, currentDir = rootDir, files = []) {
@@ -598,7 +836,8 @@ function importLegacySpecs() {
   }
 
   const sourceDir = path.join(cwd, LEGACY_SPECS_DIRS[sourceTarget]);
-  const destinationDir = getCanonicalSpecsPath();
+  const workflow = loadWorkflow();
+  const destinationDir = getSpecsPath(workflow);
   if (!fs.existsSync(sourceDir)) {
     console.error(`  Legacy specs source not found: ${path.relative(cwd, sourceDir)}`);
     process.exit(1);
@@ -645,7 +884,6 @@ function importLegacySpecs() {
     fs.copyFileSync(sourceFile, destinationFile);
   }
 
-  const workflow = loadWorkflow();
   const migrations = Array.isArray(workflow.migrations) ? workflow.migrations : [];
   migrations.push({
     source: LEGACY_SPECS_DIRS[sourceTarget],
@@ -658,13 +896,33 @@ function importLegacySpecs() {
 }
 
 function loadWorkItem(name) {
-  const itemDir = getWorkItemPath(name);
-  const itemPath = path.join(itemDir, "work.json");
-  if (!fs.existsSync(itemPath)) {
+  const itemDir = findWorkItem(name);
+  if (!itemDir) {
     console.error(`  Work item not found: ${name}`);
     process.exit(1);
   }
+  const itemPath = path.join(itemDir, "work.json");
   return { itemDir, itemPath, item: readJson(itemPath) };
+}
+
+function normalizeNextRole(value, fallback) {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  if (value === "none") {
+    return null;
+  }
+  if (!loadManifest().skills.some((entry) => entry.name === value)) {
+    fail(`Unknown next role: ${value}`);
+  }
+  return value;
+}
+
+function resolveWorkDocumentPath(item, documentPath) {
+  if (item.schemaVersion === 1) {
+    return resolveProjectRelativePath(path.join(STATE_DIRNAME, documentPath), "schema v1 work document");
+  }
+  return resolveProjectRelativePath(documentPath, "work document");
 }
 
 function work() {
@@ -674,15 +932,17 @@ function work() {
   }
   const safeName = validateFeatureName(featureName);
   const safeFeature = validateFeatureName(linkedFeature);
-  ensureWorkflow();
-  const featureDir = path.join(getCanonicalSpecsPath(), "features", safeFeature);
+  const workflow = ensureWorkflow();
+  const specsDir = getSpecsPath(workflow);
+  const featureDir = path.join(specsDir, "features", safeFeature);
   if (!fs.existsSync(featureDir)) {
     console.error(`  Feature not found in shared specs: ${safeFeature}`);
     console.error(`  Run feature --name ${safeFeature} first.`);
     process.exit(1);
   }
 
-  const itemDir = getWorkItemPath(safeName);
+  const existingItemDir = findWorkItem(safeName);
+  const itemDir = existingItemDir || getWorkItemPath(safeName);
   const workPath = path.join(itemDir, "work.json");
   if (fs.existsSync(workPath) && !force) {
     console.error(`  Work item already exists: ${safeName}. Use --force to overwrite.`);
@@ -690,39 +950,49 @@ function work() {
   }
 
   const documents = {
-    articulate: `specs/features/${safeFeature}/articulate.md`,
-    designs: `specs/features/${safeFeature}/designs.md`,
-    specs: `specs/features/${safeFeature}/specs.md`,
+    articulate: getProjectRelativePath(path.join(featureDir, "articulate.md")),
+    designs: getProjectRelativePath(path.join(featureDir, "designs.md")),
+    specs: getProjectRelativePath(path.join(featureDir, "specs.md")),
   };
+  const now = new Date();
+  const creationDate = now.toISOString().slice(0, 10);
   const item = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: safeName,
     feature: safeFeature,
     phase: "articulate",
     status: "active",
     activeRole: "role-planner",
-    nextRole: "role-designer",
+    nextRole: normalizeNextRole(selectedNextRole, "role-developer"),
     pendingTasks: [],
     blockers: [],
     documents,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now.toISOString(),
   };
 
   fs.mkdirSync(itemDir, { recursive: true });
   writeJson(workPath, item);
   writeFileIfChanged(
     path.join(itemDir, "handoff.md"),
-    renderTemplate("handoff-template.md", { "{work-id}": safeName, "{feature-name}": safeFeature })
+    renderTemplate("handoff-template.md", {
+      "{work-id}": safeName,
+      "{feature-name}": safeFeature,
+      "{YYYY-MM-DD}": creationDate,
+    })
   );
   writeFileIfChanged(
     path.join(itemDir, "verification.md"),
-    renderTemplate("verification-template.md", { "{work-id}": safeName, "{feature-name}": safeFeature })
+    renderTemplate("verification-template.md", {
+      "{work-id}": safeName,
+      "{feature-name}": safeFeature,
+      "{YYYY-MM-DD}": creationDate,
+    })
   );
 
   console.log("\n  Workflow Work Item\n");
   console.log(`  [created] ${path.relative(cwd, itemDir)}`);
   console.log("  Phase: articulate");
-  console.log("  Next role: role-designer\n");
+  console.log(`  Next role: ${item.nextRole || "-"}\n`);
 }
 
 function advance() {
@@ -739,13 +1009,14 @@ function advance() {
     console.error(`  Unknown role: ${selectedRole}`);
     process.exit(1);
   }
+  normalizeNextRole(selectedNextRole, null);
 
   const { itemPath, item } = loadWorkItem(safeName);
   const defaultRoles = PHASE_ROLES[phase];
   item.phase = phase;
   item.status = selectedStatus || (phase === "done" ? "complete" : "active");
   item.activeRole = selectedRole || defaultRoles[0];
-  item.nextRole = defaultRoles[1];
+  item.nextRole = normalizeNextRole(selectedNextRole, defaultRoles[1]);
   item.updatedAt = new Date().toISOString();
   writeJson(itemPath, item);
 
@@ -759,19 +1030,35 @@ function advance() {
 
 function resume() {
   const safeName = validateFeatureName(featureName);
-  const { itemDir, item } = loadWorkItem(safeName);
+  const { itemDir, itemPath, item } = loadWorkItem(safeName);
   console.log("\n  Workflow Resume Packet\n");
   console.log(`  Work item: ${item.id}`);
+  console.log(`  Work file: ${path.relative(cwd, itemPath)}`);
   console.log(`  Feature: ${item.feature}`);
   console.log(`  Phase: ${item.phase}`);
   console.log(`  Status: ${item.status}`);
   console.log(`  Active role: ${item.activeRole || "-"}`);
   console.log(`  Next role: ${item.nextRole || "-"}`);
-  console.log(`  Pending tasks: ${(item.pendingTasks || []).length}`);
-  console.log(`  Blockers: ${(item.blockers || []).length}`);
+  console.log(`  Updated at: ${item.updatedAt || "-"}`);
+  console.log("  Pending tasks:");
+  if ((item.pendingTasks || []).length === 0) {
+    console.log("  - none");
+  } else {
+    for (const task of item.pendingTasks) {
+      console.log(`  - ${typeof task === "string" ? task : JSON.stringify(task)}`);
+    }
+  }
+  console.log("  Blockers:");
+  if ((item.blockers || []).length === 0) {
+    console.log("  - none");
+  } else {
+    for (const blocker of item.blockers) {
+      console.log(`  - ${typeof blocker === "string" ? blocker : JSON.stringify(blocker)}`);
+    }
+  }
   console.log("\n  Read first:");
   for (const documentPath of Object.values(item.documents || {})) {
-    console.log(`  - ${path.join(STATE_DIRNAME, documentPath)}`);
+    console.log(`  - ${path.relative(cwd, resolveWorkDocumentPath(item, documentPath))}`);
   }
   console.log(`  - ${path.relative(cwd, path.join(itemDir, "handoff.md"))}`);
   console.log(`  - ${path.relative(cwd, path.join(itemDir, "verification.md"))}\n`);
@@ -876,6 +1163,11 @@ function validate() {
   }
 
   const packageJson = readJson(path.join(ROOT_DIR, "package.json"));
+  if (packageJson.version !== manifest.version) {
+    failures.push(
+      `package.json version (${packageJson.version}) must match manifest version (${manifest.version})`
+    );
+  }
   for (const requiredEntry of ["templates/", "skills/", "agent-workflow.manifest.json", "adapters/"]) {
     if (!packageJson.files.includes(requiredEntry)) {
       failures.push(`package.json files must include "${requiredEntry}"`);
@@ -921,7 +1213,7 @@ function doctor() {
     detail: fs.existsSync(paths.skillsDir) ? "present" : "missing (run install)",
   });
   findings.push({
-    label: `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,
+    label: workflow ? workflow.specsRoot : `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,
     ok: fs.existsSync(paths.specsDir),
     detail: fs.existsSync(paths.specsDir) ? "present" : "missing (run init)",
   });
@@ -981,12 +1273,151 @@ function doctor() {
   );
 }
 
+function getUpdateCachePath() {
+  if (process.env.AGENT_WORKFLOW_UPDATE_CACHE_DIR) {
+    return path.join(process.env.AGENT_WORKFLOW_UPDATE_CACHE_DIR, "update-check.json");
+  }
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Caches", "agent-workflow-orchestration", "update-check.json");
+  }
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "agent-workflow-orchestration", "update-check.json");
+  }
+  const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache");
+  return path.join(base, "agent-workflow-orchestration", "update-check.json");
+}
+
+function getUpdateCheckNow() {
+  const configured = Number(process.env.AGENT_WORKFLOW_UPDATE_CHECK_NOW);
+  return Number.isFinite(configured) && configured > 0 ? configured : Date.now();
+}
+
+function readUpdateCache(cachePath) {
+  try {
+    return readJson(cachePath);
+  } catch (error) {
+    return {};
+  }
+}
+
+function requestLatestVersion(registryUrl) {
+  return new Promise((resolve, reject) => {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(registryUrl);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const client = parsedUrl.protocol === "http:" ? http : https;
+    const request = client.get(
+      parsedUrl,
+      { headers: { accept: "application/json", "user-agent": `${loadManifest().name}/${loadManifest().version}` } },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+          if (body.length > 256 * 1024) {
+            request.destroy(new Error("registry response was too large"));
+          }
+        });
+        response.on("end", () => {
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(`registry returned HTTP ${response.statusCode}`));
+            return;
+          }
+          try {
+            const metadata = JSON.parse(body);
+            const latest = metadata["dist-tags"] && metadata["dist-tags"].latest;
+            if (!semver.valid(latest)) {
+              reject(new Error("registry latest version was invalid"));
+              return;
+            }
+            resolve(latest);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+    request.setTimeout(UPDATE_CHECK_TIMEOUT_MS, () => {
+      request.destroy(new Error("registry request timed out"));
+    });
+    request.on("error", reject);
+  });
+}
+
+function updateCheckEnabled() {
+  if (process.env.AGENT_WORKFLOW_NO_UPDATE_CHECK === "1" || process.env.NO_UPDATE_NOTIFIER === "1") {
+    return false;
+  }
+  if (process.env.CI) {
+    return false;
+  }
+  return Boolean(process.stdout.isTTY) || process.env.AGENT_WORKFLOW_FORCE_UPDATE_CHECK === "1";
+}
+
+async function maybeCheckForUpdate() {
+  if (!updateCheckEnabled()) {
+    return;
+  }
+  const cachePath = getUpdateCachePath();
+  const cache = readUpdateCache(cachePath);
+  const now = getUpdateCheckNow();
+  const ttl = cache.failed ? UPDATE_CHECK_FAILURE_TTL_MS : UPDATE_CHECK_SUCCESS_TTL_MS;
+  let latest = cache.latest;
+  if (cache.failed && cache.checkedAt && now - cache.checkedAt < ttl) {
+    return;
+  }
+  if (!cache.checkedAt || now - cache.checkedAt >= ttl) {
+    const packageName = loadManifest().name;
+    const registryUrl =
+      process.env.AGENT_WORKFLOW_REGISTRY_URL ||
+      `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
+    try {
+      latest = await requestLatestVersion(registryUrl);
+      cache.latest = latest;
+      cache.failed = false;
+      cache.checkedAt = now;
+    } catch (error) {
+      cache.failed = true;
+      cache.checkedAt = now;
+      try {
+        writeJson(cachePath, cache);
+      } catch (writeError) {
+        // Update checks must never affect command success.
+      }
+      return;
+    }
+  }
+
+  const current = loadManifest().version;
+  if (
+    semver.valid(current) &&
+    semver.valid(latest) &&
+    semver.gt(latest, current) &&
+    (!cache.notifiedAt || now - cache.notifiedAt >= UPDATE_CHECK_SUCCESS_TTL_MS)
+  ) {
+    console.error(`\n  Update available: ${current} → ${latest}`);
+    console.error(`  Run: npx ${loadManifest().name}@latest update\n`);
+    cache.notifiedAt = now;
+  }
+  try {
+    writeJson(cachePath, cache);
+  } catch (error) {
+    // Update checks must never affect command success.
+  }
+}
+
 function help() {
   console.log(`
   agent-workflow-orchestration <command> [options]
 
   Commands:
     install    Install role files for a target adapter
+    update     Safely update recorded role files for installed targets
     uninstall  Remove installed role files for a target adapter
     init       Initialize shared workflow specs docs
     feature    Create articulate/designs/specs docs in shared specs
@@ -1005,6 +1436,7 @@ function help() {
     --from     Legacy specs source target for the import command
     --phase    Work phase for the advance command
     --role     Active role override for the advance command
+    --next-role  Next role override for work/advance (role name or none)
     --status   active | blocked | complete for the advance command
     --dry-run  Preview legacy import without writing
     --global   Install to the target's global home directory
@@ -1014,6 +1446,7 @@ function help() {
   Examples:
     npx @hankim.dev/agent-workflow-orchestration install --target cursor
     npx @hankim.dev/agent-workflow-orchestration install --target codex
+    npx @hankim.dev/agent-workflow-orchestration update
     npx @hankim.dev/agent-workflow-orchestration init
     npx @hankim.dev/agent-workflow-orchestration feature --name user-onboarding
     npx @hankim.dev/agent-workflow-orchestration import --from cursor
@@ -1027,6 +1460,9 @@ function help() {
 switch (command) {
   case "install":
     install();
+    break;
+  case "update":
+    update();
     break;
   case "uninstall":
     uninstall();
@@ -1067,3 +1503,7 @@ switch (command) {
     help();
     process.exit(1);
 }
+
+maybeCheckForUpdate().catch(() => {
+  // Update checks must never affect command success.
+});

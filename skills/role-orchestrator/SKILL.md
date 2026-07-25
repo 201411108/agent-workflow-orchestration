@@ -2,7 +2,7 @@
 name: role-orchestrator
 description: >-
   ADS(articulate/designs/specs) 문서 루프를 기준으로 사용자 요청을 분류하고
-  planner/designer/developer 역할의 실행 순서와 문서 핸드오프를 고정한다.
+  planner/developer/reviewer 기본 체인과 조건부 역할의 실행 순서를 고정한다.
 inputs:
   required:
     - user_request
@@ -66,23 +66,13 @@ fallbacks:
 - 근거: [1-2줄]
 
 ### active_roles
-- 순서: [role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer]
+- 순서: [role-planner -> role-developer -> role-reviewer]
 - 제외된 역할: [없으면 "없음"]
 
 ### role_handoff_blocks
-#### role-planner
-- 목표:
-- 읽을 문서:
-- 작성/갱신할 문서:
-- 다음 역할 입력:
+활성 역할마다 다음 블록을 하나씩 만들고, 조건부 역할이 제외되면 해당 블록도 제외한다.
 
-#### role-designer
-- 목표:
-- 읽을 문서:
-- 작성/갱신할 문서:
-- 다음 역할 입력:
-
-#### role-developer
+#### {active-role}
 - 목표:
 - 읽을 문서:
 - 작성/갱신할 문서:
@@ -98,21 +88,20 @@ fallbacks:
 
 | 요청 유형 | 활성 역할 |
 |-----------|-----------|
-| 신규 기능 또는 상위 기획 | `role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer` |
+| 신규 기능 또는 상위 기획 | `role-planner -> role-developer -> role-reviewer` |
 | articulate 작성/수정 | `role-planner` |
-| UI/UX 상세화 | `role-designer -> role-developer` |
-| 구현 specs 작성 | `role-developer` |
-| 코드 구현 | `role-developer` |
-| 버그 수정 | `role-developer` |
-| 리팩토링 | `role-developer` |
-| 복합 요청 | `role-researcher -> role-planner -> role-designer -> role-architect -> role-developer -> role-reviewer` |
+| UI/UX 상세화 | `role-designer -> role-developer -> role-reviewer` |
+| 구현 specs 작성 | `role-developer -> role-reviewer` |
+| 코드 구현 | `role-developer -> role-reviewer` |
+| 버그 수정 | `role-developer -> role-reviewer` |
+| 리팩토링 | `role-developer -> role-reviewer` |
+| 복합 요청 | `role-planner -> role-developer -> role-reviewer` |
 
-아래 조건이면 역할을 추가한다:
+기본 체인은 `role-planner -> role-developer -> role-reviewer`다. 아래 조건이면 해당 역할을 필요한 단계 앞에 삽입한다:
 
-- 왜/무엇을 위한 기능인지 불명확함: `role-planner`
-- 코드/문서 근거 또는 외부 참고 확인이 필요함: `role-researcher`
-- UI 흐름, 화면, 상태, 접근성 변경 필요: `role-designer`
-- API, 상태, 호환성 또는 구조 결정이 필요함: `role-architect`
+- 코드/문서 근거 또는 외부 참고 확인이 필요함: planner 앞에 `role-researcher`
+- UI 흐름, 화면, 상태, 접근성 변경 필요: developer 앞에 `role-designer`
+- API, 상태, 호환성 또는 구조 결정이 필요함: developer 앞에 `role-architect`
 - 구현 계획, 코드 변경, 검증 필요: `role-developer`
 - 구현 결과 또는 구현 전 스펙의 품질 확인이 필요함: `role-reviewer`
 

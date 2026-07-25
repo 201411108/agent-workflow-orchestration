@@ -19,6 +19,10 @@ const expectedStrings = [
   ".agent-workflow/specs",
   "import --from cursor",
   "resume --name",
+  "@latest update",
+  "update --global",
+  "--next-role",
+  "AGENT_WORKFLOW_NO_UPDATE_CHECK",
   "agent-workflow.manifest.json",
   ".agent-workflow/workflow.json",
   "docs/README.ko.md",
@@ -38,6 +42,10 @@ const expectedKoreanStrings = [
   ".agent-workflow/specs",
   "import --from cursor",
   "resume --name",
+  "@latest update",
+  "update --global",
+  "--next-role",
+  "AGENT_WORKFLOW_NO_UPDATE_CHECK",
   "agent-workflow.manifest.json",
   ".agent-workflow/workflow.json",
   "../README.md",
@@ -50,6 +58,7 @@ const expectedKoreanChangelogStrings = [
   "ADS",
   "feature --name",
   "README.ko.md",
+  "1.1.0",
 ];
 
 const missing = expectedStrings.filter((token) => !readme.includes(token));

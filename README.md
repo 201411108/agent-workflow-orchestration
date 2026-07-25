@@ -14,6 +14,10 @@ Agent Workflow Orchestration installs a consistent role-based AI workflow for Cu
 - ADS feature documents: `articulate.md`, `designs.md`, and `specs.md`
 - Shared project configuration and specs in `.agent-workflow/`
 - Optional local or version-controlled continuity work items for model/session handoff
+- Safe role-file updates with ownership hashes and sidecar preservation
+- Once-daily interactive update notifications that never modify files automatically
+
+The default feature chain is `Planner → Developer → Reviewer`. Researcher is inserted when evidence gathering is needed, Designer for UI changes, and Architect for API, state, compatibility, or structural decisions.
 
 ## ADS Workflow
 
@@ -51,12 +55,37 @@ npx @hankim.dev/agent-workflow-orchestration install --target claude
 ```
 
 The default target is `cursor`. Installing another target adds its role files without deleting existing target content.
+Each generated role file is recorded with its package version and SHA-256 ownership hash. `install --force`, `update --force`, and `uninstall --force` only touch the adapter role file itself; other files in the same role directory are preserved.
 
 Global installation is also supported for role files:
 
 ```bash
 npx @hankim.dev/agent-workflow-orchestration install --target cursor --global
 ```
+
+## Update Existing Installations
+
+Use an explicit `@latest` when you want `npx` to fetch the current CLI:
+
+```bash
+npx @hankim.dev/agent-workflow-orchestration@latest update
+```
+
+Project `update` refreshes every target recorded in `.agent-workflow/.local/state.json`. Select one target with `--target`. Global role files require an explicit target:
+
+```bash
+npx @hankim.dev/agent-workflow-orchestration@latest update --target codex
+npm install -g @hankim.dev/agent-workflow-orchestration@latest
+agent-workflow-orchestration update --global --target codex
+```
+
+Files installed by 1.0.x have no ownership hashes. Perform the first migration explicitly; sidecar files in role directories remain untouched:
+
+```bash
+npx @hankim.dev/agent-workflow-orchestration@latest update --force
+```
+
+Without `--force`, `update` and `uninstall` first compare every role file with its recorded hash. A missing hash, modified file, or missing file aborts the whole operation without changing anything.
 
 ## Initialize Specs
 
@@ -110,6 +139,17 @@ This creates:
 
 Existing feature documents are preserved by default. Use `--force` to overwrite them.
 
+`workflow.json.specsRoot` controls the shared specs location. It must be a project-relative path that remains inside the project:
+
+```json
+{
+  "schemaVersion": 2,
+  "specsRoot": "docs/agent-specs",
+  "continuity": { "storage": "local" },
+  "migrations": []
+}
+```
+
 ## Continuity And Migration
 
 Import existing target-specific specs without changing their source files:
@@ -123,17 +163,33 @@ Create and resume a work item after its feature exists:
 
 ```bash
 agent-workflow-orchestration work --name implement-onboarding --feature user-onboarding
-agent-workflow-orchestration advance --name implement-onboarding --phase implementation --role role-developer
+agent-workflow-orchestration advance --name implement-onboarding --phase implementation --role role-developer --next-role role-reviewer
 agent-workflow-orchestration resume --name implement-onboarding
 ```
 
-By default, work items are stored below `.agent-workflow/.local/` and excluded from version control. Set `"continuity": { "storage": "project" }` in `.agent-workflow/workflow.json` to share work items through the repository.
+`work` records Developer as the default next role. Use `--next-role <role>` or `--next-role none` on `work` and `advance` to persist the actual handoff.
+
+By default, work items are stored below `.agent-workflow/.local/` and excluded from version control. Set `"continuity": { "storage": "project" }` in `.agent-workflow/workflow.json` to share new work items through the repository. `resume`, `advance`, and forced work-item refreshes search both locations, so changing this setting does not strand existing work. If the same ID exists in both locations, the command stops and prints both paths.
+
+For legacy target specs, preview conflicts before importing. The source is never removed:
+
+```bash
+agent-workflow-orchestration import --from cursor --dry-run
+agent-workflow-orchestration import --from cursor
+```
+
+## Update Notifications
+
+Interactive TTY runs check the npm `latest` tag at most once per day with an 800 ms timeout. Failures are cached for one hour and never affect the command result. CI and non-TTY runs skip the check. Set `AGENT_WORKFLOW_NO_UPDATE_CHECK=1` or `NO_UPDATE_NOTIFIER=1` to disable it.
+
+The notification is advisory only. It never updates the package or generated files. Because 1.0.0 did not contain this checker, the first 1.1.0 migration must be discovered through the GitHub Release or these instructions.
 
 ## CLI
 
 ```bash
 agent-workflow-orchestration install --target cursor
 agent-workflow-orchestration install --target codex
+agent-workflow-orchestration update
 agent-workflow-orchestration init
 agent-workflow-orchestration feature --name payment-retry
 agent-workflow-orchestration work --name payment-retry-implementation --feature payment-retry
@@ -168,7 +224,8 @@ You do not need to validate this workflow only by running mini projects. The pac
 
 - `npm run validate`: verifies manifest, role files, adapters, templates, and package metadata.
 - `npm run check:readme`: verifies English/Korean README links and important command references.
-- `npm run test:smoke`: creates temporary fixtures and checks multi-target install, shared specs, legacy import, continuity resume, doctor, and safe uninstall behavior.
+- `npm run test:smoke`: creates temporary fixtures and checks ownership hashes, sidecar safety, shared specs, legacy import, continuity resume, and safe updates/removal.
+- `npm run test:update-check`: uses a local mock registry and fake clock to cover update availability, cache, timeout, offline, CI, and opt-out behavior without accessing the real registry.
 - `npm run check`: runs all of the above.
 
 Mini projects are still useful as final acceptance tests, but the core workflow is covered by automated fixture tests.
@@ -179,6 +236,7 @@ Mini projects are still useful as final acceptance tests, but the core workflow 
 npm run validate
 npm run check:readme
 npm run test:smoke
+npm run test:update-check
 npm run check
 ```
 
