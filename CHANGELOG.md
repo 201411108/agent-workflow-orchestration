@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Project multi-agent configuration and repository orchestration guidance
 - Codex orchestration operations guide with migration notes and new-session
   smoke tests
+- Reusable pull request template based on the repository's existing PR structure
 
 ### Changed
 

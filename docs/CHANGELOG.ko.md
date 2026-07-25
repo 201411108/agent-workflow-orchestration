@@ -13,6 +13,7 @@
 - `.codex/agents`에 읽기 전용 planner·designer와 developer custom agent 추가
 - 프로젝트 multi-agent 설정과 저장소 오케스트레이션 규칙 추가
 - 마이그레이션 노트와 새 세션 스모크 테스트를 포함한 Codex 운영 가이드 추가
+- 기존 PR 구조를 반영한 재사용 가능한 pull request 템플릿 추가
 
 ### 변경
 
