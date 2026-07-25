@@ -17,6 +17,7 @@ outputs:
     - handoff_notes
 required_tools:
   - file_read
+mutation_policy: docs-only
 optional_tools:
   - web_search
   - glob_search
@@ -40,7 +41,7 @@ fallbacks:
 ### Optional
 
 - `specs_context`: 관련 ADS 문서 요약
-- `existing_articulate_doc`: 기존 `features/{feature-name}/articulate.md`
+- `existing_articulate_doc`: 기존 `.agent-workflow/specs/features/{feature-name}/articulate.md`
 - `linked_references`: 외부 문서, 이슈, 레퍼런스
 
 ## Outputs
@@ -66,12 +67,12 @@ fallbacks:
 ### handoff_notes
 - 디자이너에 전달할 핵심:
 - 개발자에 전달할 핵심:
-- 문서 갱신 위치: `features/{feature-name}/articulate.md`
+- 문서 갱신 위치: `.agent-workflow/specs/features/{feature-name}/articulate.md`
 ```
 
 ## Workflow
 
-1. target-specific specs의 `features/{feature-name}/articulate.md`가 있으면 먼저 읽고 갱신 모드로 전환한다.
+1. `.agent-workflow/specs/features/{feature-name}/articulate.md`가 있으면 먼저 읽고 갱신 모드로 전환한다.
 2. 관련 feature 폴더가 없으면 새 기능으로 간주하고 feature slug 후보를 제안한다.
 3. 사용자 요청에서 목적, 대상, 목표, 비목표, 제약, 성공 기준을 분리한다.
 4. 디자인이나 구현으로 넘어가기 전에 "왜 필요한지"와 "무엇을 위해 필요한지"가 명확한지 확인한다.
@@ -82,7 +83,7 @@ fallbacks:
 
 - `web_search` 사용 가능: 최신 외부 레퍼런스가 필요한 경우 실제 URL이 있는 2-3개만 포함한다.
 - `structured_question` 사용 가능: 답변이 없으면 권장 가정을 같이 기록한다.
-- `glob_search` 없음: target-specific specs의 `features/`와 `decisions/`를 직접 확인한다.
+- `glob_search` 없음: `.agent-workflow/specs/`의 `features/`와 `decisions/`를 직접 확인한다.
 
 ## Fallback Rules
 

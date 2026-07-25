@@ -4,10 +4,10 @@
   "fileName": "CLAUDE.md",
   "projectPaths": {
     "skillsDir": ".claude/skills",
-    "specsDir": ".claude/specs"
+    "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
     "skillsDir": ".claude/skills",
-    "specsDir": ".claude/specs"
+    "specsDir": ".agent-workflow/specs"
   }
 }

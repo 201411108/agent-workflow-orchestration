@@ -12,14 +12,22 @@ const expectedStrings = [
   "--target cursor",
   "--target codex",
   "--target claude",
-  "feature --target",
+  "feature --name",
   "articulate.md",
   "designs.md",
   "specs.md",
+  ".agent-workflow/specs",
+  "import --from cursor",
+  "resume --name",
+  "@latest update",
+  "update --global",
+  "--next-role",
+  "AGENT_WORKFLOW_NO_UPDATE_CHECK",
   "agent-workflow.manifest.json",
-  ".agent-workflow/state.json",
+  ".agent-workflow/workflow.json",
   "docs/README.ko.md",
   "role-orchestrator",
+  "role-reviewer",
 ];
 
 const expectedKoreanStrings = [
@@ -27,14 +35,22 @@ const expectedKoreanStrings = [
   "--target cursor",
   "--target codex",
   "--target claude",
-  "feature --target",
+  "feature --name",
   "articulate.md",
   "designs.md",
   "specs.md",
+  ".agent-workflow/specs",
+  "import --from cursor",
+  "resume --name",
+  "@latest update",
+  "update --global",
+  "--next-role",
+  "AGENT_WORKFLOW_NO_UPDATE_CHECK",
   "agent-workflow.manifest.json",
-  ".agent-workflow/state.json",
+  ".agent-workflow/workflow.json",
   "../README.md",
   "role-orchestrator",
+  "role-reviewer",
 ];
 
 const expectedKoreanChangelogStrings = [
@@ -42,6 +58,7 @@ const expectedKoreanChangelogStrings = [
   "ADS",
   "feature --name",
   "README.ko.md",
+  "1.1.0",
 ];
 
 const missing = expectedStrings.filter((token) => !readme.includes(token));

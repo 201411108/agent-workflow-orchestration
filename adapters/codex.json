@@ -4,10 +4,10 @@
   "fileName": "AGENT.md",
   "projectPaths": {
     "skillsDir": ".codex/skills",
-    "specsDir": ".codex/specs"
+    "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
     "skillsDir": ".codex/skills",
-    "specsDir": ".codex/specs"
+    "specsDir": ".agent-workflow/specs"
   }
 }

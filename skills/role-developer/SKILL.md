@@ -21,6 +21,7 @@ outputs:
 required_tools:
   - file_read
   - file_edit
+mutation_policy: implementation
 optional_tools:
   - text_search
   - lint_runner
@@ -48,7 +49,7 @@ fallbacks:
 - `designs_handoff`: 사용자 흐름, UI 상태, 접근성, 디자인 결정
 - `project_rules`: 프로젝트 규칙
 - `specs_context`: 관련 ADS 문서 요약
-- `existing_specs_doc`: 기존 `features/{feature-name}/specs.md`
+- `existing_specs_doc`: 기존 `.agent-workflow/specs/features/{feature-name}/specs.md`
 
 ## Outputs
 
@@ -88,7 +89,7 @@ fallbacks:
 3. 관련 코드와 인접 패턴을 읽고 실제 프로젝트 구조에 맞는 인터페이스, 상태, 데이터, 테스트 기준을 정리한다.
 4. 구현 전 또는 구현 중 사용자 논의로 요구사항이 바뀌면 `articulate.md`, `designs.md`, `specs.md` 중 영향을 받는 문서를 갱신 대상으로 표시한다.
 5. 코드 변경 후 lint/test/typecheck 중 가능한 검증을 실행한다.
-6. 구현 완료 후 target-specific specs의 `changes/`에 실제 변경 기록과 검증 결과를 남긴다.
+6. 구현 완료 후 `.agent-workflow/specs/changes/`에 실제 변경 기록과 검증 결과를 남긴다.
 
 ## Tool Guidance
 

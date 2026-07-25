@@ -1,6 +1,6 @@
 {
   "name": "@hankim.dev/agent-workflow-orchestration",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Multi-target role orchestration package for Cursor, Codex, and Claude",
   "keywords": [
     "cursor",
@@ -26,7 +26,8 @@
     "doctor": "node bin/cli.js doctor --target cursor",
     "check:readme": "node scripts/check-readme.js",
     "test:smoke": "node scripts/fixture-smoke.js",
-    "check": "npm run validate && npm run check:readme && npm run test:smoke",
+    "test:update-check": "node scripts/update-check-test.js",
+    "check": "npm run validate && npm run check:readme && npm run test:smoke && npm run test:update-check",
     "test": "npm run check"
   },
   "files": [
@@ -52,6 +53,9 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=14.14.0"
+  },
+  "dependencies": {
+    "semver": "^7.7.2"
   }
 }
