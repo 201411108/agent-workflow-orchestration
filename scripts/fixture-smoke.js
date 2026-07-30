@@ -1,4 +1,5 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -97,6 +98,59 @@ function smokeTarget(target, rootDir, roleFileName, targetDir) {
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "specs.md"));
 }
 
+function smokeCodex(rootDir) {
+  fs.writeFileSync(path.join(rootDir, "AGENTS.md"), "# Consumer guidance\n");
+  fs.mkdirSync(path.join(rootDir, ".codex"), { recursive: true });
+  fs.writeFileSync(
+    path.join(rootDir, ".codex", "config.toml"),
+    "# keep this comment\nmodel = \"consumer-model\"\n\n[agents]\nmax_concurrent_threads_per_session = 5\n"
+  );
+
+  run(["install", "--target", "codex"], rootDir);
+  run(["install", "--target", "codex"], rootDir);
+  run(["update", "--target", "codex"], rootDir);
+  const doctor = run(["doctor", "--target", "codex"], rootDir);
+
+  assertExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  for (const roleName of ["planner", "designer", "developer"]) {
+    assertExists(path.join(rootDir, ".codex", "agents", `${roleName}.toml`));
+  }
+  const config = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
+  assertIncludes(config, "# keep this comment");
+  assertIncludes(config, 'model = "consumer-model"');
+  assertIncludes(config, "max_concurrent_threads_per_session = 5");
+  assertIncludes(config, "multi_agent = true");
+  assertIncludes(config, "enabled = true");
+  const guidance = fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
+  assertIncludes(guidance, "# Consumer guidance");
+  assertIncludes(guidance, "<!-- BEGIN agent-workflow-orchestration:codex -->");
+  assertIncludes(doctor.stdout, "multi-agent settings present");
+
+  const state = JSON.parse(
+    fs.readFileSync(path.join(rootDir, ".agent-workflow", ".local", "state.json"), "utf8")
+  );
+  if (
+    state.schemaVersion !== 3 ||
+    Object.keys(state.targets.codex.files).length !== 4 ||
+    state.targets.codex.shared.config.addedKeys.length !== 2
+  ) {
+    throw new Error("Codex install state must record full-file and shared-key ownership");
+  }
+
+  run(["uninstall", "--target", "codex"], rootDir);
+  assertNotExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(rootDir, ".codex", "agents", "planner.toml"));
+  const remainingConfig = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
+  assertIncludes(remainingConfig, "# keep this comment");
+  assertIncludes(remainingConfig, 'model = "consumer-model"');
+  assertIncludes(remainingConfig, "max_concurrent_threads_per_session = 5");
+  assertNotIncludes(remainingConfig, "multi_agent = true");
+  assertNotIncludes(remainingConfig, "enabled = true");
+  const remainingGuidance = fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8");
+  assertIncludes(remainingGuidance, "# Consumer guidance");
+  assertNotIncludes(remainingGuidance, "<!-- BEGIN agent-workflow-orchestration:codex -->");
+}
+
 const cursorFixture = makeFixture();
 const codexFixture = makeFixture();
 const claudeFixture = makeFixture();
@@ -111,10 +165,14 @@ const invalidAbsoluteFixture = makeFixture();
 const invalidTraversalFixture = makeFixture();
 const ignoreFixture = makeFixture();
 const globalFixture = makeFixture();
+const codexLegacyFixture = makeFixture();
+const codexConflictFixture = makeFixture();
+const codexDottedFixture = makeFixture();
+const codexOwnedFileConflictFixture = makeFixture();
 
 try {
   smokeTarget("cursor", cursorFixture, "SKILL.md", ".cursor");
-  smokeTarget("codex", codexFixture, "AGENT.md", ".codex");
+  smokeCodex(codexFixture);
   smokeTarget("claude", claudeFixture, "CLAUDE.md", ".claude");
 
   run(["install", "--target", "cursor"], multiTargetFixture);
@@ -126,13 +184,14 @@ try {
   fs.writeFileSync(roleSidecar, "keep role notes\n");
   run(["install", "--target", "codex"], multiTargetFixture);
   run(["install", "--target", "cursor", "--force"], multiTargetFixture);
+  run(["update"], multiTargetFixture);
   const statePath = path.join(multiTargetFixture, ".agent-workflow", ".local", "state.json");
   assertExists(statePath);
   assertJsonField(statePath, "installedTargets", ["cursor", "codex"]);
   assertExists(userTargetFile);
   assertExists(roleSidecar);
   assertExists(path.join(multiTargetFixture, ".cursor", "skills", "role-orchestrator", "SKILL.md"));
-  assertExists(path.join(multiTargetFixture, ".codex", "skills", "role-orchestrator", "AGENT.md"));
+  assertExists(path.join(multiTargetFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
   assertExists(path.join(multiTargetFixture, ".agent-workflow", "specs", "features", "shared-feature", "specs.md"));
   run(["uninstall", "--target", "cursor"], multiTargetFixture);
   assertExists(userTargetFile);
@@ -328,10 +387,7 @@ try {
   assertIncludes(customResume.stdout, "docs/agent-specs/features/custom-root/articulate.md");
   run(["install", "--target", "codex"], customSpecsFixture);
   assertExists(path.join(customSpecsFixture, "docs", "agent-specs", "features", "custom-root", "specs.md"));
-  assertIncludes(
-    fs.readFileSync(path.join(customSpecsFixture, ".codex", "skills", "role-orchestrator", "AGENT.md"), "utf8"),
-    "docs/agent-specs/features"
-  );
+  assertExists(path.join(customSpecsFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
   const customDoctor = run(["doctor", "--target", "codex"], customSpecsFixture);
   assertIncludes(customDoctor.stdout, "docs/agent-specs: present");
 
@@ -375,6 +431,128 @@ try {
   run(["uninstall", "--global", "--target", "cursor"], globalFixture, false, {
     HOME: globalFixture,
   });
+  run(["install", "--global", "--target", "codex"], globalFixture, false, {
+    HOME: globalFixture,
+  });
+  assertExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertExists(path.join(globalFixture, ".codex", "config.toml"));
+  assertExists(path.join(globalFixture, ".codex", "AGENTS.md"));
+  run(["uninstall", "--global", "--target", "codex"], globalFixture, false, {
+    HOME: globalFixture,
+  });
+  assertNotExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertNotExists(path.join(globalFixture, ".codex", "config.toml"));
+  assertNotExists(path.join(globalFixture, ".codex", "AGENTS.md"));
+
+  const legacyRoleDir = path.join(codexLegacyFixture, ".codex", "skills", "role-planner");
+  fs.mkdirSync(legacyRoleDir, { recursive: true });
+  const legacyRolePath = path.join(legacyRoleDir, "AGENT.md");
+  const legacyContents = "# legacy package-owned Codex role\n";
+  fs.writeFileSync(legacyRolePath, legacyContents);
+  fs.writeFileSync(path.join(legacyRoleDir, "notes.md"), "keep this sidecar\n");
+  fs.mkdirSync(path.join(codexLegacyFixture, ".agent-workflow", ".local"), { recursive: true });
+  fs.writeFileSync(
+    path.join(codexLegacyFixture, ".agent-workflow", ".local", "state.json"),
+    `${JSON.stringify({
+      schemaVersion: 2,
+      installedTargets: ["codex"],
+      packageVersion: "1.0.0",
+      targets: {
+        codex: {
+          installedVersion: "1.0.0",
+          files: {
+            "role-planner/AGENT.md": crypto.createHash("sha256").update(legacyContents).digest("hex"),
+          },
+        },
+      },
+    }, null, 2)}\n`
+  );
+  run(["update", "--target", "codex"], codexLegacyFixture);
+  assertNotExists(legacyRolePath);
+  assertExists(path.join(legacyRoleDir, "notes.md"));
+  assertExists(path.join(codexLegacyFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+
+  fs.mkdirSync(path.join(codexConflictFixture, ".codex"), { recursive: true });
+  const conflictingConfig = "[features]\nmulti_agent = false\n";
+  fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), conflictingConfig);
+  const configConflict = run(["install", "--target", "codex"], codexConflictFixture, true);
+  assertIncludes(configConflict.stderr || configConflict.stdout, "incompatible TOML value");
+  assertNotExists(path.join(codexConflictFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  if (fs.readFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), "utf8") !== conflictingConfig) {
+    throw new Error("Codex shared-file preflight conflict must not change config.toml");
+  }
+
+  const inlineConfig = "features = { multi_agent = true }\n";
+  fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), inlineConfig);
+  const inlineConflict = run(["install", "--target", "codex"], codexConflictFixture, true);
+  assertIncludes(inlineConflict.stderr || inlineConflict.stdout, "managed TOML namespace is already defined");
+  if (fs.readFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), "utf8") !== inlineConfig) {
+    throw new Error("Codex inline-table conflict must preserve config.toml");
+  }
+
+  const insufficientThreadsConfig =
+    "[features]\nmulti_agent = true\n\n[agents]\nenabled = true\nmax_concurrent_threads_per_session = 2\n";
+  fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), insufficientThreadsConfig);
+  const threadConflict = run(["install", "--target", "codex"], codexConflictFixture, true);
+  assertIncludes(threadConflict.stderr || threadConflict.stdout, "incompatible TOML value");
+
+  fs.writeFileSync(
+    path.join(codexConflictFixture, ".codex", "config.toml"),
+    "[features]\nmulti_agent = true\n"
+  );
+  run(["install", "--target", "codex"], codexConflictFixture);
+  const managedGuidancePath = path.join(codexConflictFixture, "AGENTS.md");
+  fs.writeFileSync(
+    managedGuidancePath,
+    fs.readFileSync(managedGuidancePath, "utf8").replace(
+      "## Codex role orchestration",
+      "## User-modified Codex role orchestration"
+    )
+  );
+  const guidanceConflict = run(["uninstall", "--target", "codex", "--force"], codexConflictFixture, true);
+  assertIncludes(guidanceConflict.stderr || guidanceConflict.stdout, "managed AGENTS.md block was modified");
+  assertExists(path.join(codexConflictFixture, ".codex", "agents", "planner.toml"));
+
+  fs.mkdirSync(path.join(codexDottedFixture, ".codex"), { recursive: true });
+  fs.writeFileSync(
+    path.join(codexDottedFixture, ".codex", "config.toml"),
+    "features.multi_agent = true\r\nagents.enabled = true\r\n# preserve CRLF\r\n"
+  );
+  fs.writeFileSync(path.join(codexDottedFixture, "AGENTS.md"), "# Consumer guidance\r\n");
+  run(["install", "--target", "codex"], codexDottedFixture);
+  const dottedConfig = fs.readFileSync(path.join(codexDottedFixture, ".codex", "config.toml"), "utf8");
+  assertIncludes(dottedConfig, "agents.max_concurrent_threads_per_session = 3\r\n");
+  if (/(^|[^\r])\n/.test(dottedConfig)) {
+    throw new Error("Codex config merge must preserve CRLF line endings");
+  }
+  const dottedGuidance = fs.readFileSync(path.join(codexDottedFixture, "AGENTS.md"), "utf8");
+  if (/(^|[^\r])\n/.test(dottedGuidance)) {
+    throw new Error("Codex AGENTS.md merge must preserve CRLF line endings");
+  }
+  run(["uninstall", "--target", "codex"], codexDottedFixture);
+  const remainingDottedConfig = fs.readFileSync(
+    path.join(codexDottedFixture, ".codex", "config.toml"),
+    "utf8"
+  );
+  assertIncludes(remainingDottedConfig, "features.multi_agent = true\r\n");
+  assertIncludes(remainingDottedConfig, "agents.enabled = true\r\n");
+  assertNotIncludes(remainingDottedConfig, "max_concurrent_threads_per_session");
+
+  fs.mkdirSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents"), { recursive: true });
+  const userPlanner = "# consumer-owned planner\n";
+  fs.writeFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), userPlanner);
+  const ownedFileConflict = run(["install", "--target", "codex"], codexOwnedFileConflictFixture, true);
+  assertIncludes(ownedFileConflict.stderr || ownedFileConflict.stdout, "file exists without package ownership");
+  if (
+    fs.readFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), "utf8") !==
+    userPlanner
+  ) {
+    throw new Error("Codex full-file conflict must preserve consumer content");
+  }
+  assertNotExists(path.join(codexOwnedFileConflictFixture, ".codex", "config.toml"));
+  assertNotExists(path.join(codexOwnedFileConflictFixture, "AGENTS.md"));
 
   console.log("Fixture smoke test passed.");
 } finally {
@@ -392,4 +570,8 @@ try {
   cleanup(invalidTraversalFixture);
   cleanup(ignoreFixture);
   cleanup(globalFixture);
+  cleanup(codexLegacyFixture);
+  cleanup(codexConflictFixture);
+  cleanup(codexDottedFixture);
+  cleanup(codexOwnedFileConflictFixture);
 }

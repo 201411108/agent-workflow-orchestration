@@ -7,11 +7,24 @@ const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
 const semver = require("semver");
+const {
+  mergeConfig,
+  mergeGuidance,
+  removeManagedConfig,
+  removeManagedGuidance,
+} = require("./codex-managed");
 
 const ROOT_DIR = path.join(__dirname, "..");
 const SOURCE_DIR = path.join(ROOT_DIR, "skills");
 const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
 const ADAPTERS_DIR = path.join(ROOT_DIR, "adapters");
+const CODEX_PAYLOAD_DIR = path.join(ROOT_DIR, "payloads", "codex");
+const KNOWN_CODEX_V1_LEGACY_HASHES = {
+  "role-designer/AGENT.md": "0ffc735b3e899ae11b7422a005c11846ffdab8cf2402d4539dfde30da5cadc22",
+  "role-developer/AGENT.md": "6847b7b2162aeff3a2007125d4383016d35ff5b918b7b674f201bf56584bb518",
+  "role-orchestrator/AGENT.md": "7d64905f91a4be61244012118d57db22b514e8a75b0c8c11914c71fae86baa1b",
+  "role-planner/AGENT.md": "b48b0d362eeb04ceac8fa7205ff28b04286e9c5ff57fcf8c3302acfd6ff2fac1",
+};
 const MANIFEST_PATH = path.join(ROOT_DIR, "agent-workflow.manifest.json");
 const STATE_DIRNAME = ".agent-workflow";
 const WORKFLOW_FILENAME = "workflow.json";
@@ -263,14 +276,22 @@ function removeInstallState(projectRoot = cwd) {
 }
 
 function getTargetPaths(adapter, projectRoot = cwd) {
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const configuredPaths = global ? adapter.globalPaths : adapter.projectPaths;
   if (global) {
     return {
-      skillsDir: path.join(os.homedir(), adapter.globalPaths.skillsDir),
-      specsDir: path.join(os.homedir(), adapter.globalPaths.specsDir),
+      skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
+      agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
+      configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
+      guidanceFile: configuredPaths.guidanceFile ? path.join(scopeRoot, configuredPaths.guidanceFile) : null,
+      specsDir: path.join(scopeRoot, configuredPaths.specsDir),
     };
   }
   return {
-    skillsDir: path.join(projectRoot, adapter.projectPaths.skillsDir),
+    skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
+    agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
+    configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
+    guidanceFile: configuredPaths.guidanceFile ? path.join(scopeRoot, configuredPaths.guidanceFile) : null,
     specsDir: getSpecsPath(loadWorkflow(projectRoot), projectRoot),
   };
 }
@@ -390,6 +411,27 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
 
 function getManagedRoleFiles(adapter, projectRoot = cwd) {
   const paths = getTargetPaths(adapter, projectRoot);
+  if (adapter.target === "codex") {
+    const payloads = [
+      {
+        roleName: "feature-orchestrator",
+        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md"),
+        filePath: path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"),
+      },
+      ...["planner", "designer", "developer"].map((roleName) => ({
+        roleName,
+        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`),
+        filePath: path.join(paths.agentsDir, `${roleName}.toml`),
+      })),
+    ];
+    const scopeRoot = global ? os.homedir() : projectRoot;
+    return payloads.map((entry) => ({
+      roleName: entry.roleName,
+      relativePath: getProjectRelativePath(entry.filePath, scopeRoot),
+      filePath: entry.filePath,
+      contents: readText(entry.sourcePath),
+    }));
+  }
   return loadManifest().skills.map((role) => {
     const relativePath = path.join(role.name, adapter.fileName);
     return {
@@ -405,10 +447,10 @@ function getTargetState(state, targetName) {
   return state.targets && state.targets[targetName] ? state.targets[targetName] : null;
 }
 
-function setTargetState(state, targetName, files, installedVersion = loadManifest().version) {
+function setTargetState(state, targetName, files, installedVersion = loadManifest().version, shared = null) {
   const installed = new Set(state.installedTargets || []);
   installed.add(targetName);
-  state.schemaVersion = 2;
+  state.schemaVersion = 3;
   state.installedTargets = Array.from(installed);
   state.packageVersion = loadManifest().version;
   state.targets = state.targets || {};
@@ -416,6 +458,9 @@ function setTargetState(state, targetName, files, installedVersion = loadManifes
     installedVersion,
     files,
   };
+  if (shared) {
+    state.targets[targetName].shared = shared;
+  }
 }
 
 function removeTargetState(state, targetName, projectRoot = cwd) {
@@ -425,7 +470,7 @@ function removeTargetState(state, targetName, projectRoot = cwd) {
   if (state.targets) {
     delete state.targets[targetName];
   }
-  state.schemaVersion = 2;
+  state.schemaVersion = 3;
   state.packageVersion = loadManifest().version;
   if (state.installedTargets.length === 0) {
     removeInstallState(projectRoot);
@@ -468,7 +513,7 @@ function printConflicts(conflicts, action) {
   for (const conflict of conflicts) {
     console.error(`  [conflict] ${path.relative(cwd, conflict.filePath)} (${conflict.reason})`);
   }
-  console.error(`\n  ${action} aborted without changes. Re-run with --force to replace package-owned role files.\n`);
+  console.error(`\n  ${action} aborted without changes. Resolve the reported ownership or shared-file conflict first.\n`);
 }
 
 function writeManagedFilesAtomically(managedFiles) {
@@ -493,8 +538,191 @@ function writeManagedFilesAtomically(managedFiles) {
   }
 }
 
+function getCodexSharedPlan(paths, targetState, action) {
+  const previous = (targetState && targetState.shared) || {};
+  const configExists = fs.existsSync(paths.configFile);
+  const guidanceExists = fs.existsSync(paths.guidanceFile);
+  const configContents = configExists ? readText(paths.configFile) : "";
+  const guidanceContents = guidanceExists ? readText(paths.guidanceFile) : "";
+  const guidanceBlock = readText(path.join(CODEX_PAYLOAD_DIR, "AGENTS.block.md"));
+  const scopeRoot = global ? os.homedir() : cwd;
+
+  if (action === "uninstall") {
+    const nextConfig = removeManagedConfig(configContents, previous.config);
+    const nextGuidance = removeManagedGuidance(guidanceContents, previous.guidance);
+    return {
+      writes: [
+        {
+          roleName: "Codex config",
+          relativePath: getProjectRelativePath(paths.configFile, scopeRoot),
+          filePath: paths.configFile,
+          contents: nextConfig,
+          removeWhenEmpty: Boolean(previous.config && previous.config.created),
+        },
+        {
+          roleName: "Codex guidance",
+          relativePath: getProjectRelativePath(paths.guidanceFile, scopeRoot),
+          filePath: paths.guidanceFile,
+          contents: nextGuidance,
+          removeWhenEmpty: Boolean(previous.guidance && previous.guidance.created),
+        },
+      ],
+      shared: null,
+    };
+  }
+
+  const configResult = mergeConfig(configContents, previous.config);
+  const guidanceResult = mergeGuidance(guidanceContents, guidanceBlock, previous.guidance);
+  return {
+    writes: [
+      {
+        roleName: "Codex config",
+        relativePath: getProjectRelativePath(paths.configFile, scopeRoot),
+        filePath: paths.configFile,
+        contents: configResult.contents,
+      },
+      {
+        roleName: "Codex guidance",
+        relativePath: getProjectRelativePath(paths.guidanceFile, scopeRoot),
+        filePath: paths.guidanceFile,
+        contents: guidanceResult.contents,
+      },
+    ],
+    shared: {
+      config: { ...configResult.ownership, created: Boolean(previous.config && previous.config.created) || !configExists },
+      guidance: {
+        ...guidanceResult.ownership,
+        created: Boolean(previous.guidance && previous.guidance.created) || !guidanceExists,
+      },
+    },
+  };
+}
+
+function findCodexManagedConflicts(managedFiles, targetState, action) {
+  const recordedFiles = (targetState && targetState.files) || {};
+  const conflicts = [];
+  for (const managedFile of managedFiles) {
+    const exists = fs.existsSync(managedFile.filePath);
+    const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
+    const recordedHash = recordedFiles[managedFile.relativePath];
+    const desiredHash = sha256(managedFile.contents);
+    if (!exists && !recordedHash) {
+      continue;
+    }
+    if (action !== "uninstall" && currentHash === desiredHash) {
+      continue;
+    }
+    if (recordedHash && currentHash === recordedHash) {
+      continue;
+    }
+    if (force && recordedHash) {
+      continue;
+    }
+    conflicts.push({
+      filePath: managedFile.filePath,
+      reason: !recordedHash ? "file exists without package ownership" : exists ? "file was modified" : "file is missing",
+    });
+  }
+  return conflicts;
+}
+
+function getLegacyCodexPlan(targetState, projectRoot = cwd) {
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const legacySkillsDir = path.join(scopeRoot, ".codex", "skills");
+  const recordedFiles = (targetState && targetState.files) || {};
+  const legacyAdapter = {
+    target: "codex",
+    label: "Codex Adapter",
+    fileName: "AGENT.md",
+    projectPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
+    globalPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
+  };
+  const removable = [];
+  const conflicts = [];
+  for (const role of loadManifest().skills) {
+    const relativePath = path.join(role.name, "AGENT.md");
+    const filePath = path.join(legacySkillsDir, relativePath);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+    const currentHash = sha256(fs.readFileSync(filePath));
+    const recordedHash = recordedFiles[relativePath];
+    const expectedHash = sha256(renderTargetRoleFile(legacyAdapter, role.name, projectRoot));
+    const knownV1Hash = KNOWN_CODEX_V1_LEGACY_HASHES[relativePath];
+    if ((recordedHash && currentHash === recordedHash) || currentHash === expectedHash || currentHash === knownV1Hash) {
+      removable.push({ roleName: role.name, relativePath, filePath });
+    } else {
+      conflicts.push({ filePath, reason: "legacy Codex file is modified or ownership cannot be proven" });
+    }
+  }
+  return { removable, conflicts, legacySkillsDir };
+}
+
+function removeLegacyCodexFiles(plan) {
+  for (const legacyFile of plan.removable) {
+    fs.rmSync(legacyFile.filePath, { force: true });
+    removeDirIfEmpty(path.dirname(legacyFile.filePath));
+  }
+  removeDirIfEmpty(plan.legacySkillsDir);
+}
+
+function applyCodexWrites(writes) {
+  const nonEmpty = writes.filter((entry) => !(entry.removeWhenEmpty && entry.contents.trim() === ""));
+  writeManagedFilesAtomically(nonEmpty);
+  for (const entry of writes) {
+    if (entry.removeWhenEmpty && entry.contents.trim() === "" && fs.existsSync(entry.filePath)) {
+      fs.rmSync(entry.filePath, { force: true });
+      removeDirIfEmpty(path.dirname(entry.filePath));
+    }
+  }
+}
+
+function installCodex(adapter) {
+  const paths = getTargetPaths(adapter);
+  const state = loadInstallState();
+  const targetState = getTargetState(state, "codex");
+  const managedFiles = getManagedRoleFiles(adapter);
+  const conflicts = findCodexManagedConflicts(managedFiles, targetState, "install");
+  const legacyPlan = getLegacyCodexPlan(targetState);
+  conflicts.push(...legacyPlan.conflicts);
+  let sharedPlan;
+  try {
+    sharedPlan = getCodexSharedPlan(paths, targetState, "install");
+  } catch (error) {
+    conflicts.push({ filePath: paths.configFile, reason: error.message });
+  }
+  if (conflicts.length > 0) {
+    printConflicts(conflicts, "Codex install");
+    process.exit(1);
+  }
+  if (!global) {
+    ensureWorkflow();
+  }
+
+  console.log("\n  Codex Adapter Installer\n");
+  console.log(`  Scope: ${getScopeLabel(adapter)}`);
+  console.log("  Target: codex\n");
+  applyCodexWrites([...managedFiles, ...sharedPlan.writes]);
+  removeLegacyCodexFiles(legacyPlan);
+  setTargetState(state, "codex", hashManagedFiles(managedFiles), loadManifest().version, sharedPlan.shared);
+  saveInstallState(state);
+  for (const managedFile of managedFiles) {
+    console.log(`  [installed] ${managedFile.roleName}`);
+  }
+  console.log(`  [merged] ${path.relative(global ? os.homedir() : cwd, paths.configFile)}`);
+  console.log(`  [merged] ${path.relative(global ? os.homedir() : cwd, paths.guidanceFile)}`);
+  if (legacyPlan.removable.length > 0) {
+    console.log(`  [migrated] ${legacyPlan.removable.length} legacy Codex role file(s) removed`);
+  }
+  console.log("\n  Done: Codex orchestration is installed. Start a new trusted-project session to load it.\n");
+}
+
 function install() {
   const adapter = loadAdapter(target);
+  if (adapter.target === "codex") {
+    installCodex(adapter);
+    return;
+  }
   if (!global) {
     ensureWorkflow();
   }
@@ -546,9 +774,6 @@ function update() {
   if (global && !args.includes("--target")) {
     fail("update --global requires --target <target>.");
   }
-  if (!global) {
-    ensureWorkflow();
-  }
   const state = loadInstallState();
   const targetsToUpdate = args.includes("--target") ? [target] : state.installedTargets || [];
   if (targetsToUpdate.length === 0) {
@@ -566,22 +791,56 @@ function update() {
     }
     const adapter = loadAdapter(targetName);
     const managedFiles = getManagedRoleFiles(adapter);
-    if (!force) {
+    if (targetName === "codex") {
+      const targetState = getTargetState(state, targetName);
+      conflicts.push(...findCodexManagedConflicts(managedFiles, targetState, "update"));
+      const legacyPlan = getLegacyCodexPlan(targetState);
+      conflicts.push(...legacyPlan.conflicts);
+      let sharedPlan;
+      try {
+        sharedPlan = getCodexSharedPlan(getTargetPaths(adapter), targetState, "update");
+      } catch (error) {
+        conflicts.push({ filePath: getTargetPaths(adapter).configFile, reason: error.message });
+      }
+      batches.push({ adapter, managedFiles, sharedPlan, legacyPlan });
+    } else if (!force) {
       conflicts.push(...findManagedFileConflicts(managedFiles, getTargetState(state, targetName)));
+      batches.push({ adapter, managedFiles });
+    } else {
+      batches.push({ adapter, managedFiles });
     }
-    batches.push({ adapter, managedFiles });
   }
 
   if (conflicts.length > 0) {
     printConflicts(conflicts, "Update");
     process.exit(1);
   }
+  if (!global) {
+    ensureWorkflow();
+  }
 
   console.log("\n  Agent Workflow Update\n");
-  writeManagedFilesAtomically(batches.flatMap((batch) => batch.managedFiles));
+  writeManagedFilesAtomically(
+    batches
+      .filter((batch) => batch.adapter.target !== "codex")
+      .flatMap((batch) => batch.managedFiles)
+  );
+  for (const batch of batches.filter((entry) => entry.adapter.target === "codex")) {
+    applyCodexWrites([...batch.managedFiles, ...batch.sharedPlan.writes]);
+    removeLegacyCodexFiles(batch.legacyPlan);
+  }
   for (const batch of batches) {
-    setTargetState(state, batch.adapter.target, hashManagedFiles(batch.managedFiles));
+    setTargetState(
+      state,
+      batch.adapter.target,
+      hashManagedFiles(batch.managedFiles),
+      loadManifest().version,
+      batch.sharedPlan ? batch.sharedPlan.shared : null
+    );
     console.log(`  [updated] ${batch.adapter.target}: ${batch.managedFiles.length} role file(s)`);
+    if (batch.legacyPlan && batch.legacyPlan.removable.length > 0) {
+      console.log(`  [migrated] codex: ${batch.legacyPlan.removable.length} legacy role file(s) removed`);
+    }
   }
   saveInstallState(state);
   console.log(`\n  Done: ${batches.length} target(s) updated to ${loadManifest().version}.\n`);
@@ -589,6 +848,10 @@ function update() {
 
 function uninstall() {
   const adapter = loadAdapter(target);
+  if (adapter.target === "codex") {
+    uninstallCodex(adapter);
+    return;
+  }
   const paths = getTargetPaths(adapter);
   const managedFiles = getManagedRoleFiles(adapter);
   const state = loadInstallState();
@@ -625,6 +888,48 @@ function uninstall() {
   console.log(`\n  Done: ${removed} roles removed.\n`);
 }
 
+function uninstallCodex(adapter) {
+  const paths = getTargetPaths(adapter);
+  const state = loadInstallState();
+  const targetState = getTargetState(state, "codex");
+  const managedFiles = getManagedRoleFiles(adapter);
+  const hasAny = managedFiles.some((entry) => fs.existsSync(entry.filePath));
+  if (!targetState && !hasAny) {
+    console.log("\n  Codex Adapter Uninstaller\n\n  Done: Codex orchestration was not installed.\n");
+    return;
+  }
+  const conflicts = findCodexManagedConflicts(managedFiles, targetState, "uninstall");
+  const legacyPlan = getLegacyCodexPlan(targetState);
+  conflicts.push(...legacyPlan.conflicts);
+  let sharedPlan;
+  try {
+    sharedPlan = getCodexSharedPlan(paths, targetState, "uninstall");
+  } catch (error) {
+    conflicts.push({ filePath: paths.configFile, reason: error.message });
+  }
+  if (conflicts.length > 0) {
+    printConflicts(conflicts, "Codex uninstall");
+    process.exit(1);
+  }
+
+  console.log("\n  Codex Adapter Uninstaller\n");
+  console.log(`  Scope: ${getScopeLabel(adapter)}`);
+  console.log("  Target: codex\n");
+  for (const managedFile of managedFiles) {
+    if (fs.existsSync(managedFile.filePath)) {
+      fs.rmSync(managedFile.filePath, { force: true });
+      removeDirIfEmpty(path.dirname(managedFile.filePath));
+      console.log(`  [removed] ${managedFile.roleName}`);
+    }
+  }
+  applyCodexWrites(sharedPlan.writes);
+  removeLegacyCodexFiles(legacyPlan);
+  removeDirIfEmpty(paths.skillsDir);
+  removeDirIfEmpty(paths.agentsDir);
+  removeTargetState(state, "codex");
+  console.log("\n  Done: Codex-owned files and shared-file entries were removed.\n");
+}
+
 function list() {
   const manifest = loadManifest();
   const adapters = target && args.includes("--target") ? [loadAdapter(target)] : loadAllAdapters();
@@ -650,6 +955,20 @@ function list() {
     console.log(`  [${adapter.target}] ${adapter.label}`);
     console.log(`    skills: ${projectPaths.skillsDir}`);
     console.log(`    specs: ${projectPaths.specsDir}`);
+    if (adapter.target === "codex") {
+      console.log(
+        `    feature-orchestrator (${fs.existsSync(path.join(projectPaths.skillsDir, "feature-orchestrator", "SKILL.md")) ? "installed" : "-"})`
+      );
+      for (const roleName of ["planner", "designer", "developer"]) {
+        console.log(
+          `    ${roleName} (${fs.existsSync(path.join(projectPaths.agentsDir, `${roleName}.toml`)) ? "installed" : "-"})`
+        );
+      }
+      console.log(`    config: ${projectPaths.configFile}`);
+      console.log(`    guidance: ${projectPaths.guidanceFile}`);
+      console.log();
+      continue;
+    }
     for (const role of manifest.skills) {
       const roleFile = path.join(projectPaths.skillsDir, role.name, adapter.fileName);
       const status = fs.existsSync(roleFile) ? "installed" : "-";
@@ -1113,6 +1432,35 @@ function validateAdapter(adapter, manifest) {
   if (!adapter.fileName || !adapter.projectPaths || !adapter.projectPaths.skillsDir || !adapter.projectPaths.specsDir) {
     failures.push(`adapter ${adapter.target} is missing required path metadata`);
   }
+  if (adapter.target === "codex") {
+    for (const scopeName of ["projectPaths", "globalPaths"]) {
+      for (const field of ["skillsDir", "agentsDir", "configFile", "guidanceFile"]) {
+        if (!adapter[scopeName] || !adapter[scopeName][field]) {
+          failures.push(`adapter codex ${scopeName} is missing ${field}`);
+        }
+      }
+    }
+    const skillPath = path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md");
+    const skillContents = fs.existsSync(skillPath) ? readText(skillPath) : "";
+    if (!/^---\n[\s\S]*?name:\s*feature-orchestrator\n[\s\S]*?description:\s*>-/m.test(skillContents)) {
+      failures.push("Codex feature-orchestrator payload has invalid or incomplete frontmatter");
+    }
+    for (const roleName of ["planner", "designer", "developer"]) {
+      const agentPath = path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`);
+      const contents = fs.existsSync(agentPath) ? readText(agentPath) : "";
+      for (const token of [`name = "${roleName}"`, "description =", "developer_instructions ="]) {
+        if (!contents.includes(token)) {
+          failures.push(`Codex ${roleName}.toml is missing ${token}`);
+        }
+      }
+    }
+    try {
+      mergeConfig(readText(path.join(CODEX_PAYLOAD_DIR, "config.toml")));
+    } catch (error) {
+      failures.push(`Codex config payload is invalid: ${error.message}`);
+    }
+    return failures;
+  }
 
   for (const role of manifest.skills) {
     const rendered = renderTargetRoleFile(adapter, role.name);
@@ -1123,9 +1471,6 @@ function validateAdapter(adapter, manifest) {
     }
     if (adapter.target === "cursor" && !rendered.includes("name:")) {
       failures.push(`adapter ${adapter.target} render for ${role.name} must preserve source frontmatter`);
-    }
-    if (adapter.target === "codex" && !rendered.includes("Codex Role Contract")) {
-      failures.push(`adapter ${adapter.target} render for ${role.name} missing Codex header`);
     }
     if (adapter.target === "claude" && !rendered.includes("Claude Role Contract")) {
       failures.push(`adapter ${adapter.target} render for ${role.name} missing Claude header`);
@@ -1168,7 +1513,7 @@ function validate() {
       `package.json version (${packageJson.version}) must match manifest version (${manifest.version})`
     );
   }
-  for (const requiredEntry of ["templates/", "skills/", "agent-workflow.manifest.json", "adapters/"]) {
+  for (const requiredEntry of ["templates/", "skills/", "payloads/", "agent-workflow.manifest.json", "adapters/"]) {
     if (!packageJson.files.includes(requiredEntry)) {
       failures.push(`package.json files must include "${requiredEntry}"`);
     }
@@ -1207,11 +1552,49 @@ function doctor() {
   const workflow = global ? null : loadWorkflow();
   const paths = getTargetPaths(adapter);
 
-  findings.push({
-    label: `${adapter.projectPaths.skillsDir}`,
-    ok: fs.existsSync(paths.skillsDir),
-    detail: fs.existsSync(paths.skillsDir) ? "present" : "missing (run install)",
-  });
+  if (adapter.target === "codex") {
+    const codexFiles = getManagedRoleFiles(adapter);
+    findings.push({
+      label: `${global ? adapter.globalPaths.skillsDir : adapter.projectPaths.skillsDir}`,
+      ok: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md")),
+      detail: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"))
+        ? "feature-orchestrator present"
+        : "missing (run install)",
+    });
+    findings.push({
+      label: `${global ? adapter.globalPaths.agentsDir : adapter.projectPaths.agentsDir}`,
+      ok: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath)),
+      detail: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath))
+        ? "planner, designer, and developer present"
+        : "one or more custom agents are missing",
+    });
+    let configOk = false;
+    try {
+      const result = mergeConfig(fs.existsSync(paths.configFile) ? readText(paths.configFile) : "");
+      configOk = result.ownership.addedKeys.length === 0;
+    } catch (error) {
+      configOk = false;
+    }
+    findings.push({
+      label: `${global ? adapter.globalPaths.configFile : adapter.projectPaths.configFile}`,
+      ok: configOk,
+      detail: configOk ? "multi-agent settings present" : "missing or conflicting multi-agent settings",
+    });
+    const guidance = fs.existsSync(paths.guidanceFile) ? readText(paths.guidanceFile) : "";
+    findings.push({
+      label: `${global ? adapter.globalPaths.guidanceFile : adapter.projectPaths.guidanceFile}`,
+      ok: guidance.includes("<!-- BEGIN agent-workflow-orchestration:codex -->"),
+      detail: guidance.includes("<!-- BEGIN agent-workflow-orchestration:codex -->")
+        ? "managed orchestration guidance present"
+        : "managed orchestration guidance missing",
+    });
+  } else {
+    findings.push({
+      label: `${adapter.projectPaths.skillsDir}`,
+      ok: fs.existsSync(paths.skillsDir),
+      detail: fs.existsSync(paths.skillsDir) ? "present" : "missing (run install)",
+    });
+  }
   findings.push({
     label: workflow ? workflow.specsRoot : `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,
     ok: fs.existsSync(paths.specsDir),
@@ -1416,9 +1799,9 @@ function help() {
   agent-workflow-orchestration <command> [options]
 
   Commands:
-    install    Install role files for a target adapter
-    update     Safely update recorded role files for installed targets
-    uninstall  Remove installed role files for a target adapter
+    install    Install managed runtime files for a target adapter
+    update     Safely update recorded target files and managed shared entries
+    uninstall  Remove package-owned target files and managed shared entries
     init       Initialize shared workflow specs docs
     feature    Create articulate/designs/specs docs in shared specs
     import     Copy legacy target specs into shared specs without overwriting conflicts
@@ -1439,8 +1822,8 @@ function help() {
     --next-role  Next role override for work/advance (role name or none)
     --status   active | blocked | complete for the advance command
     --dry-run  Preview legacy import without writing
-    --global   Install to the target's global home directory
-    --force    Overwrite package-owned generated files
+    --global   Use the target's global home-directory scope
+    --force    Replace recorded package-owned full files; never overwrite unowned shared content
     --help     Show this help message
 
   Examples:

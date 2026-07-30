@@ -33,6 +33,7 @@
   "files": [
     "adapters/",
     "bin/",
+    "payloads/",
     "skills/",
     "templates/",
     "docs/",

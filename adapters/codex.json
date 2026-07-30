@@ -1,13 +1,19 @@
 {
   "target": "codex",
   "label": "Codex Adapter",
-  "fileName": "AGENT.md",
+  "fileName": "SKILL.md",
   "projectPaths": {
-    "skillsDir": ".codex/skills",
+    "skillsDir": ".agents/skills",
+    "agentsDir": ".codex/agents",
+    "configFile": ".codex/config.toml",
+    "guidanceFile": "AGENTS.md",
     "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
-    "skillsDir": ".codex/skills",
+    "skillsDir": ".agents/skills",
+    "agentsDir": ".codex/agents",
+    "configFile": ".codex/config.toml",
+    "guidanceFile": ".codex/AGENTS.md",
     "specsDir": ".agent-workflow/specs"
   }
 }
