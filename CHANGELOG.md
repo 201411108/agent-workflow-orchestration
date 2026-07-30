@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Publishable Codex runtime payload and project/global installer coverage for
+  the official skill, custom-agent, config, and guidance paths
+- Pull-request CI for package checks and packed-content verification
 - Project-local Codex `feature-orchestrator` skill under the official
   `.agents/skills` discovery path
 - Read-only planner and designer custom agents plus a developer custom agent
@@ -22,12 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Codex install, update, and uninstall now preserve shared TOML comments and
+  unknown keys, manage only a marked `AGENTS.md` block, track full-file
+  ownership, and safely migrate provably package-owned legacy `AGENT.md` files
+- Standard Codex 1.0.0 outputs are recognized by exact hashes; dotted TOML and
+  CRLF are preserved, while unsafe managed-namespace forms fail preflight
 - Codex project work now routes only the roles required by the request and
   passes compressed decisions, risks, unknowns, and verification gaps between
   roles
 - Standardized the remaining change-record and ADR templates in English
 - Migration record references configuration commit
   `9b3a24c55ff90135e9de10e464098d4042790c12`
+- Consumer-distribution implementation is recorded in commit
+  `b11cc8957c01457b6d2b383f5a65de6203e74ae0`
 
 ## [1.1.0] - 2026-07-25
 

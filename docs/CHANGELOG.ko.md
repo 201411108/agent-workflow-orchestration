@@ -8,6 +8,9 @@
 
 ### 추가
 
+- 공식 skill, custom agent, config, guidance 경로를 project/global 범위에 설치하는
+  배포 가능한 Codex runtime payload와 fixture 검증 추가
+- package 검사와 pack 내용 검증을 실행하는 pull request CI 추가
 - 공식 `.agents/skills` 탐색 경로에 프로젝트 전용 Codex
   `feature-orchestrator` 스킬 추가
 - `.codex/agents`에 읽기 전용 planner·designer와 developer custom agent 추가
@@ -17,11 +20,18 @@
 
 ### 변경
 
+- Codex install/update/uninstall이 공유 TOML 주석과 알 수 없는 key를 보존하고,
+  `AGENTS.md` marker 블록만 관리하며, 전체 파일 소유권과 증명 가능한 legacy
+  `AGENT.md` 안전 이전을 처리하도록 변경
+- 표준 Codex 1.0.0 출력은 정확한 hash로 식별하고 dotted TOML과 CRLF를 보존하며,
+  안전하지 않은 managed namespace 형식은 preflight에서 중단하도록 변경
 - Codex 프로젝트 작업이 요청에 필요한 역할만 선택하고 역할 간에 결정, 리스크,
   미결정 사항, 검증 공백을 압축 전달하도록 변경
 - 변경 기록 및 ADR 템플릿에 남아 있던 한국어 문구를 영어로 통일
 - 설정 커밋 `9b3a24c55ff90135e9de10e464098d4042790c12`을 마이그레이션
   변경 이력에 기록
+- 소비자 배포 구현 커밋
+  `b11cc8957c01457b6d2b383f5a65de6203e74ae0`을 변경 이력에 기록
 
 ## [1.1.0] - 2026-07-25
 

@@ -145,6 +145,67 @@ designer custom agent에 설정 화면의 접근성과 오류 상태를 리뷰�
 `/agent`는 실행 중이거나 완료된 agent thread를 검사하고 전환하는 용도다. 역할을
 직접 요청할 때는 위 예시처럼 prompt에서 custom agent 이름과 범위를 명시한다.
 
+프로젝트 `.codex` 설정과 custom agent는 trusted project에서만 로드된다. 소비자
+프로젝트에서는 설치 또는 갱신 후 프로젝트를 trusted 상태로 열고 새 세션을
+시작해야 한다.
+
+## 소비자 프로젝트 설치와 갱신
+
+프로젝트 범위:
+
+```bash
+npx @hankim.dev/agent-workflow-orchestration@latest install --target codex
+npx @hankim.dev/agent-workflow-orchestration@latest update --target codex
+```
+
+global 범위:
+
+```bash
+npx @hankim.dev/agent-workflow-orchestration@latest install --global --target codex
+npx @hankim.dev/agent-workflow-orchestration@latest update --global --target codex
+```
+
+프로젝트 설치는 `.agents/skills`, `.codex/agents`, `.codex/config.toml`, 루트
+`AGENTS.md`에 적용된다. global 설치는 각각 `~/.agents/skills`,
+`~/.codex/agents`, `~/.codex/config.toml`, `~/.codex/AGENTS.md`에 적용된다.
+
+- skill과 세 agent TOML은 SHA-256 hash로 추적하는 package-owned 전체 파일이다.
+- config는 기존 주석과 알 수 없는 key를 보존하고 multi-agent key만 병합한다.
+- guidance는 고유한 `BEGIN/END` marker 사이 블록만 관리한다.
+- 모든 파일의 소유권과 공유 설정을 preflight한 뒤 쓰므로 발견 가능한 충돌 시
+  Codex payload를 일부만 적용하지 않는다.
+- `--force`도 소유하지 않은 공유 config/guidance나 소유권이 불명확한 legacy 파일을
+  덮거나 삭제하지 않는다.
+- uninstall은 package가 추가한 key와 marker 블록만 제거하고 소비자 내용을
+  보존한다.
+- config 병합은 주석, 알 수 없는 key, dotted managed key, CRLF를 보존한다.
+  inline table로 정의된 managed namespace, 비활성화된 필수 flag, 3보다 작은 thread
+  상한은 충돌로 처리한다.
+
+공개된 1.0.0이 표준 설정으로 생성한 네 legacy
+`.codex/skills/role-*/AGENT.md`는 정확한 SHA-256 hash로 식별한다. 그 밖의 파일은
+state hash가 현재 파일과 일치하거나 전체 파일이 알려진 package 생성본과 일치할
+때만 제거한다. 같은 역할 디렉터리의 sidecar는 보존한다. custom specs를 사용했거나
+편집되어 소유권을 증명할 수 없는 파일은 update가 경로와 이유를 출력하고 중단하므로
+먼저 백업하고 내용을 수동 검토해야 한다.
+
+### 배포와 소비자 업데이트
+
+PR merge만으로 npm 소비자가 갱신되지는 않는다. CI 통과와 merge 후 package
+maintainer가 `1.1.0`을 npm에 publish하고 아래 명령으로 registry 상태를 확인해야
+한다.
+
+```bash
+npm view @hankim.dev/agent-workflow-orchestration version
+```
+
+publish 후 소비자는
+`npx @hankim.dev/agent-workflow-orchestration@latest update --target codex`를
+실행하고 trusted project의 새 Codex 세션을 시작한다. 전역 설치 사용자는
+`npm install -g @hankim.dev/agent-workflow-orchestration@latest`로 package를
+갱신한 뒤 `agent-workflow-orchestration update --global --target codex`를
+실행한다.
+
 ## 실패 및 degraded 동작
 
 서브에이전트 도구가 비활성화됐거나 custom agent를 시작할 수 없으면 다음을
@@ -185,11 +246,26 @@ designer custom agent에 설정 화면의 접근성과 오류 상태를 리뷰�
 - 현재 checkout과 Git 이력에는 루트 `.agent-workflow/state.json` 및
   `current-work.md`가 없어 제거한 파일이 없다. 앞으로도 자동 갱신 장치 없이
   이러한 수동 상태 파일을 SSoT로 사용하지 않는다.
-- 루트 `skills/`, `adapters/`, `agent-workflow.manifest.json`은 npm 패키지의
-  다중 target 배포 소스이며 이번 프로젝트 로컬 Codex 설정 마이그레이션 범위에서
-  수정하거나 삭제하지 않았다.
+- 루트 `skills/`와 `agent-workflow.manifest.json`의 기존 다중 target 역할 계약은
+  유지했다. Codex adapter는 공식 runtime bundle을 설치하도록 갱신했으며
+  Cursor/Claude adapter 동작은 유지했다.
 
 ## 업데이트 노트
+
+### 2026-07-29
+
+- npm 소비자 프로젝트와 global 범위에 공식 Codex skill, custom agent, multi-agent
+  설정, guidance 관리 블록을 설치하도록 CLI와 package payload를 연결했다.
+- config key-level 병합, guidance marker 병합, full-file hash 소유권, legacy
+  `AGENT.md` 안전 제거와 sidecar 보존을 구현했다.
+- install/update/uninstall의 preflight 충돌 처리와 project/global fixture 검증을
+  추가했다.
+- 공개 1.0.0 표준 legacy 출력의 정확한 hash 기반 이전, dotted TOML과 CRLF 보존,
+  inline table·부족한 thread 상한 충돌 검증을 추가했다.
+- 배포 후 실제 runtime 로딩은 trusted project의 새 세션에서 `/skills`와 `/agent`
+  스모크 테스트로 확인해야 한다.
+- 소비자 배포 구현 커밋:
+  `b11cc8957c01457b6d2b383f5a65de6203e74ae0`
 
 ### 2026-07-25
 

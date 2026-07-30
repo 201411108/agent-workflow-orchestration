@@ -38,11 +38,11 @@ Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기
 
 ## Targets
 
-| Target | Skills Path | Shared Specs Path | Role File |
-|--------|-------------|------------|-----------|
-| `cursor` | `.cursor/skills/` | `.agent-workflow/specs/` | `SKILL.md` |
-| `codex` | `.codex/skills/` | `.agent-workflow/specs/` | `AGENT.md` |
-| `claude` | `.claude/skills/` | `.agent-workflow/specs/` | `CLAUDE.md` |
+| Target | 런타임 파일 | Shared Specs Path |
+|--------|------------|-------------------|
+| `cursor` | `.cursor/skills/*/SKILL.md` | `.agent-workflow/specs/` |
+| `codex` | `.agents/skills/feature-orchestrator/SKILL.md`, `.codex/agents/*.toml`, `.codex/config.toml`, `AGENTS.md` 관리 블록 | `.agent-workflow/specs/` |
+| `claude` | `.claude/skills/*/CLAUDE.md` | `.agent-workflow/specs/` |
 
 한 프로젝트에 여러 target 역할 파일을 함께 설치할 수 있으며 모두 동일한 공통 specs와 continuity 상태를 읽습니다.
 
@@ -55,13 +55,17 @@ npx @hankim.dev/agent-workflow-orchestration install --target claude
 ```
 
 기본 target은 `cursor`입니다. 다른 target을 추가 설치해도 기존 target 파일이나 specs를 삭제하지 않습니다.
-생성된 각 역할 파일에는 설치 버전과 SHA-256 소유권 해시가 기록됩니다. `install --force`, `update --force`, `uninstall --force`도 adapter 역할 파일 하나만 처리하며 같은 역할 디렉터리의 다른 파일은 보존합니다.
+package-owned 전체 파일에는 설치 버전과 SHA-256 소유권 해시를 기록합니다. Codex에서는 알 수 없는 TOML key와 주석을 보존하고, 호환되는 multi-agent key 중 빠진 값만 추가하며, `AGENTS.md`의 고유 marker 블록만 관리합니다. 공유 값이나 소유권이 충돌하면 Codex payload를 쓰기 전에 중단하며 `--force`도 소유하지 않은 공유 내용을 덮어쓰지 않습니다.
 
-역할 파일은 global 설치도 지원합니다.
+global 설치도 지원합니다.
 
 ```bash
 npx @hankim.dev/agent-workflow-orchestration install --target cursor --global
+npx @hankim.dev/agent-workflow-orchestration install --target codex --global
 ```
+
+Codex global 경로는 `~/.agents/skills`, `~/.codex/agents`,
+`~/.codex/config.toml`, `~/.codex/AGENTS.md`의 관리 블록입니다.
 
 ## 기존 설치물 갱신
 
@@ -79,13 +83,21 @@ npm install -g @hankim.dev/agent-workflow-orchestration@latest
 agent-workflow-orchestration update --global --target codex
 ```
 
-1.0.x가 설치한 파일에는 소유권 해시가 없습니다. 최초 전환은 다음처럼 명시적으로 수행합니다. 역할 디렉터리의 sidecar 파일은 보존됩니다.
+Codex update는 package-owned legacy `.codex/skills/role-*/AGENT.md`를 공식 구조로 이전합니다. 공개된 1.0.0이 표준 설정으로 만든 네 파일은 정확한 SHA-256 hash로 식별합니다. 그 밖의 legacy 파일은 기록된 hash 또는 전체 내용으로 package 소유권이 증명될 때만 제거하고 sidecar는 보존합니다. custom specs를 사용했거나 편집된 legacy 파일은 경로를 출력하고 수동 검토를 요구합니다. 다른 1.0.x target의 무해시 파일은 최초 전환을 다음처럼 명시적으로 수행합니다.
 
 ```bash
 npx @hankim.dev/agent-workflow-orchestration@latest update --force
 ```
 
-`--force`가 없으면 `update`와 `uninstall`은 모든 역할 파일을 사전 검사합니다. 해시 누락, 사용자 수정, 파일 누락이 하나라도 있으면 아무 파일도 변경하지 않고 전체 작업을 중단합니다.
+`update`와 `uninstall`은 package 소유권과 Codex 공유 파일 entry를 먼저 검사합니다. 수정, 누락, 충돌, 소유권 증명 실패가 있으면 target 파일을 변경하기 전에 중단합니다. `--force`는 기록된 package-owned 전체 파일을 복구할 수 있지만 소유하지 않은 Codex 공유 내용을 조용히 덮거나 삭제하지 않습니다.
+
+기존 TOML 주석, 알 수 없는 key, dotted managed key, CRLF 줄바꿈은 보존합니다.
+`features` 또는 `agents` inline table, 비활성화된 필수 flag, 3보다 작은 thread
+상한은 임의로 덮어쓰지 않고 충돌로 보고합니다.
+
+Codex 설치 또는 갱신 후 프로젝트를 trusted 상태로 열고 새 Codex 세션을 시작합니다.
+`/skills`에서 `feature-orchestrator`, `/agent`에서 활성 custom agent thread를
+확인합니다.
 
 ## Specs 초기화
 
@@ -199,7 +211,7 @@ agent-workflow-orchestration validate
 
 target 준비 상태를 점검합니다.
 
-- target skills 디렉터리
+- target runtime 경로(Codex skill, agent, config, guidance 포함)
 - 공통 specs와 workflow 설정
 - import 가능한 legacy specs
 - target별 설치된 역할 파일
