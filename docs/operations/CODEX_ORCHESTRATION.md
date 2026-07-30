@@ -191,9 +191,15 @@ state hash가 현재 파일과 일치하거나 전체 파일이 알려진 packag
 
 ### 배포와 소비자 업데이트
 
-PR merge만으로 npm 소비자가 갱신되지는 않는다. CI 통과와 merge 후 package
-maintainer가 `1.1.0`을 npm에 publish하고 아래 명령으로 registry 상태를 확인해야
-한다.
+PR merge만으로 npm 소비자가 갱신되지는 않는다. CI 통과와 merge 후에도 바로
+publish하지 말고 다음 release gate를 순서대로 실행한다.
+
+1. `npm ci`, `npm run check`, `npm pack`을 실행한다.
+2. 생성된 tarball을 임시 trusted project에 설치하고 아래 새 세션 스모크 테스트
+   여섯 단계를 실행한다.
+3. 스모크 테스트가 통과한 경우에만 package maintainer가 `1.1.0`을 npm에
+   publish한다.
+4. 아래 명령으로 registry가 `1.1.0`을 제공하는지 확인한다.
 
 ```bash
 npm view @hankim.dev/agent-workflow-orchestration version
