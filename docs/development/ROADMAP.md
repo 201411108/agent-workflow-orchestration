@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.2 완료(Codex trust 확인 1건 보류), 1.2b 미착수**
-- 다음 작업: **1.2b 레거시 경로 마이그레이션**
+- 진행 단계: **Phase 1 — 1.2b 완료, 1.3 미착수**
+- 다음 작업: **1.3 역할 계약에 Activation / Done / Stop 추가**
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -190,15 +190,25 @@ Claude Code 스킬 파일명은 `SKILL.md` 고정이라 **설치되어도 로드
 `adapters/*.json`의 `legacyRolePaths` 키가 이 작업의 입력이다. 현재는 선언만 되어 있고
 코드가 읽지 않는다.
 
-- [ ] `getLegacyCodexPlan`을 타깃 공통 `getLegacyRolePlan(adapter, targetState)`로 일반화한다
-- [ ] 기록된 해시로 소유권이 증명될 때만 제거한다. 증명 불가 파일은 보고하고 중단한다
-- [ ] 1.0.x Codex 레거시 경로(`.codex/skills/role-*/AGENT.md`) 처리를 유지한다
-      (`renderLegacyCodexRoleFile`이 그 렌더링을 보존하고 있다)
-- [ ] 스모크 테스트에 구버전 설치 → 신버전 update → 고아 없음 시나리오를 추가한다
+- [x] 타깃 공통 `getLegacyRolePlan(adapter, targetState)` 추가. 어댑터의
+      `legacyRolePaths`를 입력으로 쓴다
+- [x] 기록된 해시로 소유권이 증명될 때만 제거한다. 증명 불가 파일은 **보존하고 보고**한다
+      (중단하지 않는다 — 구 파일은 이미 로드되지 않으므로 갱신 전체를 막을 이유가 없다)
+- [x] 1.0.x Codex 레거시 경로(`.codex/skills/role-*/AGENT.md`) 처리를 유지한다
+- [x] `update`와 `uninstall` 양쪽에 연결한다
+- [x] 스모크 테스트에 구 레이아웃 합성 → update → 고아 없음 시나리오를 추가한다
+
+- [x] **추가로 발견한 회귀 수정.** 1.2가 state 키 형식을 `<role>/<fileName>`에서
+      프로젝트 상대 경로로 바꾸면서 **기존 cursor 설치본이 update를 전혀 하지 못했다**
+      (소유권 해시를 못 찾아 전부 conflict). `findRecordedHash`가 구 키를 폴백으로
+      본다. 단, 파일이 새 경로에 실제로 존재할 때만 적용한다 — 없으면 경로 이동이지
+      소유권 위반이 아니다
 
 완료 기준:
-- 구버전 설치본을 update하면 구 경로 파일이 남지 않는다
-- 사용자가 수정한 구 파일은 제거되지 않고 경로가 보고된다
+- [x] 구버전 설치본을 update하면 구 경로 파일이 남지 않는다 (cursor/claude/codex 실측)
+- [x] 사용자가 수정한 구 파일은 제거되지 않고 경로가 보고된다 (`[kept]`)
+- [x] 사이드카 파일은 보존된다
+- [x] update 없이 바로 uninstall해도 잔여 파일이 없다
 
 ### 1.3 역할 계약에 Activation / Done / Stop 추가
 

@@ -208,6 +208,8 @@ const codexLegacyFixture = makeFixture();
 const codexConflictFixture = makeFixture();
 const codexDottedFixture = makeFixture();
 const codexOwnedFileConflictFixture = makeFixture();
+const claudeLegacyFixture = makeFixture();
+const cursorLegacyKeyFixture = makeFixture();
 
 try {
   smokeTarget(
@@ -523,6 +525,77 @@ try {
   assertExists(path.join(legacyRoleDir, "notes.md"));
   assertExists(path.join(codexLegacyFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
 
+  // 1.1.0 → 1.2.0 경로 이동: 구 claude 레이아웃을 합성해 마이그레이션을 검증한다.
+  // 구 배포는 .claude/skills/<role>/CLAUDE.md 였고 state 키는 <role>/CLAUDE.md 였다.
+  const legacyClaudeFiles = {};
+  for (const roleName of ["role-orchestrator", "role-planner", "role-reviewer"]) {
+    const dir = path.join(claudeLegacyFixture, ".claude", "skills", roleName);
+    fs.mkdirSync(dir, { recursive: true });
+    const contents = `# legacy claude role: ${roleName}\n`;
+    fs.writeFileSync(path.join(dir, "CLAUDE.md"), contents);
+    legacyClaudeFiles[`${roleName}/CLAUDE.md`] = crypto.createHash("sha256").update(contents).digest("hex");
+  }
+  // 사용자가 수정한 구 파일은 해시가 어긋나므로 제거되면 안 된다.
+  const editedLegacy = path.join(claudeLegacyFixture, ".claude", "skills", "role-reviewer", "CLAUDE.md");
+  fs.writeFileSync(editedLegacy, "# legacy claude role: role-reviewer\nmy own note\n");
+  const legacySidecar = path.join(claudeLegacyFixture, ".claude", "skills", "role-planner", "notes.md");
+  fs.writeFileSync(legacySidecar, "keep this sidecar\n");
+  fs.mkdirSync(path.join(claudeLegacyFixture, ".agent-workflow", ".local"), { recursive: true });
+  fs.writeFileSync(
+    path.join(claudeLegacyFixture, ".agent-workflow", ".local", "state.json"),
+    `${JSON.stringify({
+      schemaVersion: 3,
+      installedTargets: ["claude"],
+      packageVersion: "1.1.0",
+      targets: { claude: { installedVersion: "1.1.0", files: legacyClaudeFiles } },
+    }, null, 2)}\n`
+  );
+  const claudeMigration = run(["update", "--target", "claude"], claudeLegacyFixture);
+  // 새 레이아웃이 생성된다.
+  assertExists(path.join(claudeLegacyFixture, ".claude", "agents", "role-planner.md"));
+  assertExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-orchestrator", "SKILL.md"));
+  // 소유권이 증명된 구 파일은 남지 않는다.
+  assertNotExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-planner", "CLAUDE.md"));
+  assertNotExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-orchestrator", "CLAUDE.md"));
+  // 수정된 구 파일은 보존되고 경로가 보고된다.
+  assertExists(editedLegacy);
+  assertIncludes(claudeMigration.stdout, "[kept]");
+  assertIncludes(claudeMigration.stdout, "role-reviewer/CLAUDE.md");
+  assertIncludes(claudeMigration.stdout, "[migrated] claude");
+  assertExists(legacySidecar);
+
+  // 경로는 그대로인데 state 키 형식만 바뀐 경우(cursor)도 소유권이 유지되어야 한다.
+  // 폴백이 없으면 기존 설치본이 update를 전혀 하지 못한다.
+  const cursorRoleDir = path.join(cursorLegacyKeyFixture, ".cursor", "skills", "role-planner");
+  fs.mkdirSync(cursorRoleDir, { recursive: true });
+  const cursorLegacyContents = "# legacy cursor role\n";
+  fs.writeFileSync(path.join(cursorRoleDir, "SKILL.md"), cursorLegacyContents);
+  fs.mkdirSync(path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local"), { recursive: true });
+  fs.writeFileSync(
+    path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local", "state.json"),
+    `${JSON.stringify({
+      schemaVersion: 3,
+      installedTargets: ["cursor"],
+      packageVersion: "1.1.0",
+      targets: {
+        cursor: {
+          installedVersion: "1.1.0",
+          files: {
+            "role-planner/SKILL.md": crypto.createHash("sha256").update(cursorLegacyContents).digest("hex"),
+          },
+        },
+      },
+    }, null, 2)}\n`
+  );
+  run(["update", "--target", "cursor"], cursorLegacyKeyFixture);
+  assertExists(path.join(cursorRoleDir, "SKILL.md"));
+  const cursorLegacyState = JSON.parse(
+    fs.readFileSync(path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local", "state.json"), "utf8")
+  );
+  if (!cursorLegacyState.targets.cursor.files[".cursor/skills/role-planner/SKILL.md"]) {
+    throw new Error("cursor state must be rewritten with project-relative keys after migration");
+  }
+
   fs.mkdirSync(path.join(codexConflictFixture, ".codex"), { recursive: true });
   const conflictingConfig = "[features]\nmulti_agent = false\n";
   fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), conflictingConfig);
@@ -623,4 +696,6 @@ try {
   cleanup(codexConflictFixture);
   cleanup(codexDottedFixture);
   cleanup(codexOwnedFileConflictFixture);
+  cleanup(claudeLegacyFixture);
+  cleanup(cursorLegacyKeyFixture);
 }

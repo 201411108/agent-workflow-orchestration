@@ -547,13 +547,39 @@ function getManagedRoleFiles(adapter, projectRoot = cwd) {
     const contents = isOrchestratorSkill
       ? renderOrchestratorSkillFile(adapter, role.name, projectRoot)
       : renderTargetRoleFile(adapter, role.name, projectRoot);
+    // 1.1.0은 cursor/claude 역할을 `<role>/<fileName>` 키로 기록했다.
+    // 1.2.0에서 키가 프로젝트 상대 경로로 바뀌었으므로 구 키를 후보로 남긴다.
+    // 이것이 없으면 기존 설치본의 소유권 증명이 전부 실패한다.
+    const legacyRelativePaths = [];
+    if (adapter.fileName) {
+      legacyRelativePaths.push(path.join(role.name, adapter.fileName));
+    }
     return {
       roleName: role.name,
       relativePath: getProjectRelativePath(filePath, scopeRoot),
+      legacyRelativePaths,
       filePath,
       contents,
     };
   });
+}
+
+// 구버전 키까지 훑어 기록된 해시를 찾는다.
+function findRecordedHash(recordedFiles, managedFile, exists) {
+  if (recordedFiles[managedFile.relativePath]) {
+    return recordedFiles[managedFile.relativePath];
+  }
+  // 파일이 새 경로에 없으면 구 키를 보지 않는다. 그것은 경로 이동이며
+  // 소유권 위반이 아니다. 구 경로의 파일은 레거시 계획이 따로 처리한다.
+  if (!exists) {
+    return null;
+  }
+  for (const legacyPath of managedFile.legacyRelativePaths || []) {
+    if (recordedFiles[legacyPath]) {
+      return recordedFiles[legacyPath];
+    }
+  }
+  return null;
 }
 
 function getTargetState(state, targetName) {
@@ -606,8 +632,8 @@ function findManagedFileConflicts(managedFiles, targetState) {
   const recordedFiles = targetState && targetState.files ? targetState.files : {};
   const conflicts = [];
   for (const managedFile of managedFiles) {
-    const recordedHash = recordedFiles[managedFile.relativePath];
     const exists = fs.existsSync(managedFile.filePath);
+    const recordedHash = findRecordedHash(recordedFiles, managedFile, exists);
     const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
     if (!recordedHash && !exists) {
       continue;
@@ -717,7 +743,7 @@ function findCodexManagedConflicts(managedFiles, targetState, action) {
   for (const managedFile of managedFiles) {
     const exists = fs.existsSync(managedFile.filePath);
     const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
-    const recordedHash = recordedFiles[managedFile.relativePath];
+    const recordedHash = findRecordedHash(recordedFiles, managedFile, exists);
     const desiredHash = sha256(managedFile.contents);
     if (!exists && !recordedHash) {
       continue;
@@ -737,6 +763,56 @@ function findCodexManagedConflicts(managedFiles, targetState, action) {
     });
   }
   return conflicts;
+}
+
+// 어댑터의 legacyRolePaths에 남은 구버전 배포 파일을 찾는다.
+// 기록된 해시로 소유권이 증명될 때만 제거 대상이고, 그 외에는 충돌로 보고한다.
+// 사용자가 손댔을 수 있는 파일을 임의로 지우지 않는다.
+function getLegacyRolePlan(adapter, targetState, projectRoot = cwd) {
+  const entries = adapter.legacyRolePaths || [];
+  const removable = [];
+  const conflicts = [];
+  if (entries.length === 0) {
+    return { removable, conflicts };
+  }
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const recordedFiles = (targetState && targetState.files) || {};
+  const roleNames = loadManifest().skills.map((role) => role.name);
+
+  for (const entry of entries) {
+    const patterns = entry.pattern.includes("{role}")
+      ? roleNames.map((roleName) => entry.pattern.split("{role}").join(roleName))
+      : [entry.pattern];
+    for (const relativePattern of patterns) {
+      const filePath = path.join(scopeRoot, ...entry.dir.split("/"), ...relativePattern.split("/"));
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      const currentHash = sha256(fs.readFileSync(filePath));
+      const candidateKeys = [
+        getProjectRelativePath(filePath, scopeRoot),
+        relativePattern,
+        path.join(entry.dir, relativePattern),
+      ];
+      const proven = candidateKeys.some((key) => recordedFiles[key] && recordedFiles[key] === currentHash);
+      if (proven) {
+        removable.push({ relativePath: getProjectRelativePath(filePath, scopeRoot), filePath });
+      } else {
+        conflicts.push({
+          filePath,
+          reason: "legacy role file ownership cannot be proven; review and remove it manually",
+        });
+      }
+    }
+  }
+  return { removable, conflicts };
+}
+
+function removeLegacyRoleFiles(plan) {
+  for (const legacyFile of plan.removable) {
+    fs.rmSync(legacyFile.filePath, { force: true });
+    removeDirIfEmpty(path.dirname(legacyFile.filePath));
+  }
 }
 
 function getLegacyCodexPlan(targetState, projectRoot = cwd) {
@@ -902,18 +978,20 @@ function update() {
       conflicts.push(...findCodexManagedConflicts(managedFiles, targetState, "update"));
       const legacyPlan = getLegacyCodexPlan(targetState);
       conflicts.push(...legacyPlan.conflicts);
+      const legacyRolePlan = getLegacyRolePlan(adapter, targetState);
       let sharedPlan;
       try {
         sharedPlan = getCodexSharedPlan(getTargetPaths(adapter), targetState, "update");
       } catch (error) {
         conflicts.push({ filePath: getTargetPaths(adapter).configFile, reason: error.message });
       }
-      batches.push({ adapter, managedFiles, sharedPlan, legacyPlan });
-    } else if (!force) {
-      conflicts.push(...findManagedFileConflicts(managedFiles, getTargetState(state, targetName)));
-      batches.push({ adapter, managedFiles });
+      batches.push({ adapter, managedFiles, sharedPlan, legacyPlan, legacyRolePlan });
     } else {
-      batches.push({ adapter, managedFiles });
+      const targetState = getTargetState(state, targetName);
+      if (!force) {
+        conflicts.push(...findManagedFileConflicts(managedFiles, targetState));
+      }
+      batches.push({ adapter, managedFiles, legacyRolePlan: getLegacyRolePlan(adapter, targetState) });
     }
   }
 
@@ -936,6 +1014,11 @@ function update() {
     removeLegacyCodexFiles(batch.legacyPlan);
   }
   for (const batch of batches) {
+    if (batch.legacyRolePlan) {
+      removeLegacyRoleFiles(batch.legacyRolePlan);
+    }
+  }
+  for (const batch of batches) {
     setTargetState(
       state,
       batch.adapter.target,
@@ -946,6 +1029,16 @@ function update() {
     console.log(`  [updated] ${batch.adapter.target}: ${batch.managedFiles.length} role file(s)`);
     if (batch.legacyPlan && batch.legacyPlan.removable.length > 0) {
       console.log(`  [migrated] codex: ${batch.legacyPlan.removable.length} legacy role file(s) removed`);
+    }
+    if (batch.legacyRolePlan && batch.legacyRolePlan.removable.length > 0) {
+      console.log(
+        `  [migrated] ${batch.adapter.target}: ${batch.legacyRolePlan.removable.length} legacy role file(s) removed`
+      );
+    }
+    // 소유권이 증명되지 않은 구 파일은 지우지 않고 경로만 알린다.
+    // 이미 로드되지 않는 파일이므로 갱신 전체를 막을 이유가 없다.
+    for (const leftover of (batch.legacyRolePlan && batch.legacyRolePlan.conflicts) || []) {
+      console.log(`  [kept] ${path.relative(cwd, leftover.filePath)} (${leftover.reason})`);
     }
   }
   saveInstallState(state);
@@ -988,6 +1081,18 @@ function uninstall() {
     }
   }
 
+  // 구 경로에 남은 패키지 소유 파일도 함께 정리한다.
+  // 증명되지 않은 파일은 남기고 경로만 알린다.
+  const legacyRolePlan = getLegacyRolePlan(adapter, targetState);
+  removeLegacyRoleFiles(legacyRolePlan);
+  if (legacyRolePlan.removable.length > 0) {
+    console.log(`  [removed] ${legacyRolePlan.removable.length} legacy role file(s)`);
+  }
+  for (const leftover of legacyRolePlan.conflicts) {
+    console.log(`  [kept] ${path.relative(cwd, leftover.filePath)} (${leftover.reason})`);
+  }
+
+  removeDirIfEmpty(paths.rolesDir);
   removeDirIfEmpty(paths.skillsDir);
   removeTargetState(state, adapter.target);
 

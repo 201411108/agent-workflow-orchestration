@@ -22,6 +22,44 @@
 
 ---
 
+## 2026-09-20 (9) — 1.2b 레거시 경로 마이그레이션
+
+- **작업**
+  - `getLegacyRolePlan(adapter, targetState)` 추가. 어댑터의 `legacyRolePaths`가
+    입력이며 `{role}` 패턴 확장과 리터럴 경로를 모두 처리한다
+  - `removeLegacyRoleFiles()`를 `update`와 `uninstall` 양쪽에 연결했다
+  - 증명 불가 파일은 **중단이 아니라 `[kept]`로 보고**한다. 구 파일은 이미
+    로드되지 않으므로 갱신 전체를 막을 이유가 없다
+  - 스모크 테스트에 구 claude 레이아웃 합성 + cursor 키 형식 변경 시나리오 추가
+
+- **1.2에서 놓친 회귀를 발견하고 고쳤다**
+  - ⚠️ 1.2가 state 키 형식을 `<role>/<fileName>`에서 프로젝트 상대 경로로 바꿨다.
+    그 결과 **기존 cursor 설치본이 `update`를 전혀 하지 못했다** —
+    소유권 해시를 찾지 못해 7개 파일 전부 `ownership hash is missing` conflict로
+    중단됐다. 고아 파일보다 심각한 문제였다
+  - `findRecordedHash`가 구 키를 폴백으로 본다
+  - **단, 파일이 새 경로에 실제로 존재할 때만 폴백한다.** 처음엔 무조건 폴백하게
+    했더니 claude가 `file is missing`으로 막혔다. 새 경로에 파일이 없는 것은
+    경로 이동이지 소유권 위반이 아니다
+
+- **검증 (전부 실측)**
+  - cursor: update 정상, 파일 7개, 고아 없음
+  - claude: 새 파일 7개 생성 + 구 파일 7개 제거, 고아 없음
+  - codex: 새 파일 7개 + 구 파일 4개 제거
+  - 수정된 구 파일 1개 + 사이드카: 구 파일 보존·보고, 사이드카 보존, 사용자 편집 무사
+  - update 없이 바로 uninstall: 구 파일 7개 정리, 잔여 없음
+  - **D12 원칙대로 두 검사를 각각 깨뜨려 실패를 확인했다.**
+    레거시 제거 무력화 → `unexpected path exists`,
+    구 키 폴백 무력화 → `command failed: update --target cursor`
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 (사용량 한도, 2026-09-21 13:39 이후)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.3 역할 계약에 Activation / Done / Stop 추가
+
+---
+
 ## 2026-09-20 (8) — doctor에 Codex trust 검사 추가
 
 - **작업**
