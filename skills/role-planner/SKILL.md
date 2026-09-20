@@ -32,6 +32,11 @@ fallbacks:
 목표는 사용자와 함께 기능의 "왜 필요한가"와 "무엇을 위해 필요한가"를 명확히 하여 `articulate.md`로 남기는 것이다.
 이 역할은 구현 세부보다 제품 의도, 대상 사용자, 목표, 비목표, 성공 기준, 제약을 먼저 고정한다.
 
+## Activation
+
+- 필요한 조건: `articulate.md`가 없거나, 있더라도 요청이 목적, 범위, 성공 기준을 바꾼다.
+- 건너뛰어도 되는 조건: 기존 `articulate.md`가 현재 요청을 이미 담고 있고 변경이 필요 없다.
+
 ## Inputs
 
 ### Required
@@ -78,6 +83,23 @@ fallbacks:
 4. 디자인이나 구현으로 넘어가기 전에 "왜 필요한지"와 "무엇을 위해 필요한지"가 명확한지 확인한다.
 5. 불명확한 사항은 `open_questions`에 남기고, 질문하지 못하면 명시적 기본값을 기록한다.
 6. 다음 단계가 가능하면 디자이너가 바로 `designs.md`를 작성할 수 있게 handoff를 압축한다.
+
+## Done Criteria
+
+아래가 전부 참이면 종료한다.
+
+- `purpose`, `audience`, `goals`, `non_goals`, `success_criteria`, `constraints`가 모두 채워져 있다.
+- `success_criteria`의 각 항목에 확인 방법이나 측정 기준이 붙어 있다.
+- "좋게", "편하게", "적절히" 같은 표현이 문서에 남아 있지 않다.
+- 미결정 항목이 `open_questions`에 있고, 답 없이 진행한 것은 가정으로 명시되어 있다.
+
+## Stop Conditions
+
+아래에 해당하면 즉시 중단하고 상위로 반환한다.
+
+- 구현 방식이나 화면 결정을 해야 진행할 수 있다. `role-developer` 또는 `role-designer`로 넘긴다.
+- 목적 자체가 사용자 확인 없이는 정해지지 않는다. 차단 질문으로 반환한다.
+- 앱 코드나 설정 파일을 수정해야 한다. 이 역할은 `mutation_policy: docs-only`다.
 
 ## Tool Guidance
 

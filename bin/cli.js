@@ -1604,6 +1604,11 @@ function validateSkill(skillName, manifestEntry) {
     "fallbacks:",
     "## Inputs",
     "## Outputs",
+    // 역할이 언제 시작하고 언제 끝나고 언제 멈추는지를 계약에 강제한다.
+    // 자율 실행에서 가장 큰 실패 모드는 멈춤이 아니라 잘못된 방향으로 오래 달리는 것이다.
+    "## Activation",
+    "## Done Criteria",
+    "## Stop Conditions",
   ];
 
   for (const token of requiredTokens) {

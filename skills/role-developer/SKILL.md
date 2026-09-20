@@ -37,6 +37,11 @@ fallbacks:
 목표는 `articulate.md`와 `designs.md`를 코드 작업 가능한 `specs.md`로 압축하고, 실제 구현과 검증 결과를 명확히 남기는 것이다.
 `specs.md`는 AI에 그대로 넣었을 때 구현 계획과 코드 산출물이 나올 수 있을 만큼 구체적이어야 한다.
 
+## Activation
+
+- 필요한 조건: 코드, 설정, 테스트를 실제로 바꿔야 하는 요청이다.
+- 건너뛰어도 되는 조건: 문서만 바뀌고 코드 변경이 없다.
+
 ## Inputs
 
 ### Required
@@ -90,6 +95,25 @@ fallbacks:
 4. 구현 전 또는 구현 중 사용자 논의로 요구사항이 바뀌면 `articulate.md`, `designs.md`, `specs.md` 중 영향을 받는 문서를 갱신 대상으로 표시한다.
 5. 코드 변경 후 lint/test/typecheck 중 가능한 검증을 실행한다.
 6. 구현 완료 후 `.agent-workflow/specs/changes/`에 실제 변경 기록과 검증 결과를 남긴다.
+
+## Done Criteria
+
+아래가 전부 참이면 종료한다.
+
+- `specs_doc`의 `interfaces_and_contracts`, `behavior`, `edge_cases`, `verification_plan`이 채워져 있다.
+- 변경한 파일이 빠짐없이 `change_summary`에 열거되어 있다.
+- `verification`에 실제로 실행한 명령과 그 결과만 적혀 있고, 실행하지 못한 검사는 미검증으로 표시했다.
+- 핸드오프의 범위 밖 항목에 해당하는 파일을 수정하지 않았다.
+- 남은 작업이 `followups`에 있다.
+
+## Stop Conditions
+
+아래에 해당하면 즉시 중단하고 상위로 반환한다.
+
+- 핸드오프에 범위 밖으로 명시된 영역을 수정해야 한다. 임의로 넓히지 않는다.
+- API나 호환성 같은 계약 결정을 해야 진행할 수 있다. `role-architect`로 반환한다.
+- 변경을 확인할 검증 수단이 없다. 미검증으로 보고하고 테스트 필요를 알린다.
+- 같은 실패를 세 번 고치지 못했다. 진전 없음으로 보고한다.
 
 ## Tool Guidance
 

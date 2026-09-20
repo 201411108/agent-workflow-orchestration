@@ -33,6 +33,12 @@ fallbacks:
 기능 단위 SoT는 `.agent-workflow/specs/features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
 작업을 재개할 때는 configured continuity storage의 `work-items/{work-id}/work.json`, `handoff.md`, `verification.md`를 먼저 읽는다.
 
+## Activation
+
+- 필요한 조건: 요청이 둘 이상의 역할을 거쳐야 하거나, 어떤 역할이 필요한지 불분명하다.
+- 건너뛰어도 되는 조건: 단순 질의, 파일 읽기, 단일 파일의 사소한 수정, 또는 사용자가
+  특정 역할을 직접 지명했다.
+
 ## Inputs
 
 ### Required
@@ -112,6 +118,24 @@ fallbacks:
 3. 문서가 누락된 단계부터 역할을 시작한다. 예: `articulate.md`가 없으면 planner부터 시작한다.
 4. 각 역할 실행 결과는 다음 역할의 입력으로 핵심 결정, 리스크, 미결정 질문만 압축 전달한다.
 5. 최종 응답에는 실제로 확인된 문서 상태와 추론을 구분한다.
+
+## Done Criteria
+
+아래가 전부 참이면 종료한다.
+
+- `task_classification`, `active_roles`, `role_handoff_blocks`, `final_summary` 네 블록을 모두 작성했다.
+- 활성 역할마다 핸드오프 블록이 정확히 하나씩 있고, 제외된 역할의 블록은 없다.
+- 각 활성 역할의 입력이 상류 역할의 산출물 또는 사용자 요청으로 충족된다.
+- 아직 해결되지 않은 항목이 `final_summary`에 남아 있다.
+
+## Stop Conditions
+
+아래에 해당하면 즉시 중단하고 상위로 반환한다.
+
+- 요청에서 목표를 특정할 수 없어 어떤 역할도 배정할 수 없다. 사용자에게 질문한다.
+- 필요한 역할 파일을 열 수 없다. 대체하지 말고 `degraded` 상태와 누락되는 검토를 알린다.
+- 같은 역할이 세 번째로 다시 호출된다. 진전 없음으로 보고한다.
+- 두 번 연속으로 새로운 산출물이나 확인된 사실이 늘지 않았다. 진전 없음으로 보고한다.
 
 ## Fallback Rules
 

@@ -22,6 +22,41 @@
 
 ---
 
+## 2026-09-20 (10) — 1.3 Activation / Done / Stop 추가
+
+- **작업**
+  - 7개 역할 계약에 `## Activation`, `## Done Criteria`, `## Stop Conditions` 추가
+  - `validate`의 필수 토큰에 세 섹션을 넣어 강제
+  - Done Criteria를 전수 검토해 주관적이던 2건을 확인 가능한 문장으로 교체
+    (reviewer의 "그대로 실행할 수 있는 형태" → "파일 경로와 필요한 수정 내용이 적혀 있다",
+    researcher의 "다시 탐색하지 않고 판단할 수 있는" → "읽어야 할 파일 경로가 열거되어 있다")
+
+- **설계 메모**
+  - Stop Conditions에 D6의 경계 조건을 역할 수준으로 내렸다. orchestrator에는
+    같은 역할 3회 재호출과 2회 연속 무진전, developer에는 같은 실패 3회를 명시했다.
+    Phase 3.2 드라이버가 이 값을 기계적으로 강제하기 전까지는 계약이 유일한 방어선이다
+  - Stop Conditions 대부분이 "다른 역할로 반환"으로 끝난다. D4에 따라 역할이 직접
+    다른 역할을 부르지 않으므로, 반환 대상을 명시해 오케스트레이터가 재배정하게 했다
+  - 각 역할의 `mutation_policy` 위반을 Stop Conditions에 명시했다. 1.2에서 네이티브
+    권한(`tools`, `sandbox_mode`)으로 강제되지만 `docs-only`와 `implementation`의
+    경로 구분은 네이티브 수단이 없으므로(D15 한계) 계약으로 보완한다
+
+- **검증**
+  - `validate` 통과, `npm run check` 전부 통과
+  - **검사가 실제로 실패를 잡는지 먼저 확인했다 (D12).** planner에서
+    `## Stop Conditions`를 바꾸자 `missing token: ## Stop Conditions`로 실패
+  - 세 섹션이 claude 서브에이전트, codex TOML, cursor 스킬, 오케스트레이터 스킬
+    배포물 전부에 반영되는 것을 실측 확인 (각 3/3)
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 (사용량 한도, 2026-09-21 13:39 이후)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.4 핸드오프 스키마 고정. D5의 frontmatter + 본문 하이브리드를
+  구현하며, 여기서 1.6 검증 하네스의 판정 기준이 생긴다
+
+---
+
 ## 2026-09-20 (9) — 1.2b 레거시 경로 마이그레이션
 
 - **작업**
