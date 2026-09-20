@@ -96,9 +96,28 @@ endings are preserved. Inline-table definitions of `features` or `agents`,
 disabled required flags, and a thread cap below three are reported as conflicts
 instead of being rewritten.
 
+### Codex requires project trust
+
+Codex skips the entire `.codex/` layer in an untrusted project, so custom agents
+and the merged config are ignored even when the files are installed correctly.
+Trust is inherited by subdirectories of a trusted path.
+
 After a Codex install or update, open the project as trusted and start a new
 Codex session. Confirm `role-orchestrator` with `/skills` and active custom
 agent threads with `/agent`.
+
+`doctor` reports trust state so an installed-but-inactive target is diagnosable:
+
+```bash
+agent-workflow-orchestration doctor --target codex
+```
+
+```text
+[warn] codex project trust: not trusted; Codex skips .codex/ entirely, ...
+```
+
+The `.agents/skills/` orchestrator skill is outside `.codex/` and loads without
+trust.
 
 ## Initialize Specs
 

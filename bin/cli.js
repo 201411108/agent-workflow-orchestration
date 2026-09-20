@@ -1703,6 +1703,68 @@ function validate() {
   console.log("  [ok] core roles, adapters, and package metadata are consistent.\n");
 }
 
+function getCodexHome() {
+  return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+}
+
+function realPathOrSelf(targetPath) {
+  try {
+    return fs.realpathSync(targetPath);
+  } catch (error) {
+    return path.resolve(targetPath);
+  }
+}
+
+// ~/.codex/config.toml의 [projects."<path>"] trust_level = "trusted" 항목을 모은다.
+// 전체 TOML 파싱이 아니라 섹션 헤더와 해당 키만 훑는다.
+// 읽을 수 없으면 null을 반환한다. 빈 배열(신뢰 없음)과 구분해야 한다.
+function readCodexTrustedPaths() {
+  const configPath = path.join(getCodexHome(), "config.toml");
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  let contents;
+  try {
+    contents = readText(configPath);
+  } catch (error) {
+    return null;
+  }
+  const trusted = [];
+  let currentProject = null;
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.trim();
+    const section = line.match(/^\[projects\."(.+)"\]$/);
+    if (section) {
+      currentProject = section[1];
+      continue;
+    }
+    if (line.startsWith("[")) {
+      currentProject = null;
+      continue;
+    }
+    if (currentProject && /^trust_level\s*=\s*"trusted"$/.test(line)) {
+      trusted.push(currentProject);
+      currentProject = null;
+    }
+  }
+  return trusted;
+}
+
+// trust는 하위 디렉터리로 상속된다 (2026-09-20 실측, HARNESS_CAPABILITIES 9절).
+function findCodexTrustAnchor(projectRoot, trustedPaths) {
+  const resolved = realPathOrSelf(projectRoot);
+  let best = null;
+  for (const trustedPath of trustedPaths) {
+    const base = realPathOrSelf(trustedPath);
+    if (resolved === base || resolved.startsWith(base + path.sep)) {
+      if (!best || base.length > best.length) {
+        best = base;
+      }
+    }
+  }
+  return best;
+}
+
 function doctor() {
   const adapter = loadAdapter(target);
   const findings = [];
@@ -1717,6 +1779,27 @@ function doctor() {
     const agentFiles = codexFiles.filter((entry) => entry.roleName !== orchestratorName);
     const skillsOk = skillFiles.every((entry) => fs.existsSync(entry.filePath));
     const agentsOk = agentFiles.every((entry) => fs.existsSync(entry.filePath));
+    if (!global) {
+      // .codex/ 레이어 전체(config + agents)가 프로젝트 trust 뒤에 있다.
+      // 신뢰되지 않으면 파일이 올바르게 설치되어도 Codex가 읽지 않는다.
+      const trustedPaths = readCodexTrustedPaths();
+      if (trustedPaths === null) {
+        findings.push({
+          label: "codex project trust",
+          ok: false,
+          detail: `cannot read ${path.join(getCodexHome(), "config.toml")} (open the project in Codex once and trust it)`,
+        });
+      } else {
+        const anchor = findCodexTrustAnchor(cwd, trustedPaths);
+        findings.push({
+          label: "codex project trust",
+          ok: Boolean(anchor),
+          detail: anchor
+            ? `trusted via ${anchor}`
+            : "not trusted; Codex skips .codex/ entirely, so custom agents and config will not load. Open this project in Codex once and choose to trust it",
+        });
+      }
+    }
     findings.push({
       label: `${global ? adapter.globalPaths.skillsDir : adapter.projectPaths.skillsDir}`,
       ok: skillsOk,

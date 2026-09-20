@@ -137,6 +137,34 @@ function smokeCodex(rootDir) {
   assertIncludes(guidance, "<!-- BEGIN agent-workflow-orchestration:codex -->");
   assertIncludes(doctor.stdout, "multi-agent settings present");
 
+  // 프로젝트 trust: .codex/ 레이어 전체가 이 게이트 뒤에 있다.
+  // 신뢰 정보를 읽을 수 없거나 신뢰되지 않으면 doctor가 경고해야 한다.
+  const untrustedHome = path.join(rootDir, "codex-home-untrusted");
+  fs.mkdirSync(untrustedHome, { recursive: true });
+  fs.writeFileSync(path.join(untrustedHome, "config.toml"), '[projects."/somewhere/else"]\ntrust_level = "trusted"\n');
+  const untrustedDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: untrustedHome });
+  assertIncludes(untrustedDoctor.stdout, "[warn] codex project trust");
+  assertIncludes(untrustedDoctor.stdout, "not trusted");
+
+  // 상위 경로가 신뢰되면 하위 디렉터리가 상속한다 (2026-09-20 실측).
+  const trustedHome = path.join(rootDir, "codex-home-trusted");
+  fs.mkdirSync(trustedHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(trustedHome, "config.toml"),
+    `[projects."${fs.realpathSync(rootDir)}"]\ntrust_level = "trusted"\n`
+  );
+  const trustedDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: trustedHome });
+  assertIncludes(trustedDoctor.stdout, "[ok] codex project trust");
+
+  // 신뢰 정보를 아예 읽을 수 없는 경우도 경고한다.
+  const missingHome = path.join(rootDir, "codex-home-missing");
+  const missingDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: missingHome });
+  assertIncludes(missingDoctor.stdout, "[warn] codex project trust");
+  assertIncludes(missingDoctor.stdout, "cannot read");
+
+  fs.rmSync(untrustedHome, { recursive: true, force: true });
+  fs.rmSync(trustedHome, { recursive: true, force: true });
+
   const state = JSON.parse(
     fs.readFileSync(path.join(rootDir, ".agent-workflow", ".local", "state.json"), "utf8")
   );

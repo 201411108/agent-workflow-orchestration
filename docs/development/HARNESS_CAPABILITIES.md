@@ -264,6 +264,28 @@ trust가 부여되면 파싱될 수 있는 상태인지 `tomllib`으로 확인�
 설치된 `AGENTS.md`가 존재하지 않는 이름을 가리켰다. 1.2에서 놓친 부분이며
 수정하고 `validate`에 "모든 역할 이름이 블록에 등장하는가" 검사를 추가했다.
 
+### trust 의미론 확정 (2026-09-20 추가 실측)
+
+doctor 검사를 만들기 위해 trust 동작을 대조군으로 확정했다.
+
+| 실험 | 프로젝트 `.codex/config.toml`의 `model_reasoning_effort = "low"` 반영 |
+|---|---|
+| untrusted 디렉터리 | ❌ 헤더 `high` |
+| **trusted 저장소 루트** | ✅ 헤더 `low` |
+| **trusted 경로의 하위 디렉터리** | ✅ 헤더 `low` — **상속된다** |
+| 대조군 `-c model_reasoning_effort="low"` | ✅ 헤더 `low` (플래그 자체는 정상) |
+
+두 가지가 확정됐다.
+
+1. **`.codex/` 레이어 전체가 프로젝트 trust 뒤에 있다.** config와 agents 모두.
+   앞 절의 `AGENTS: NONE`은 우리 파일 결함이 아니다
+2. **trust는 하위 디렉터리로 상속된다.** 따라서 신뢰 판정은 정확한 경로 일치가 아니라
+   조상 경로까지 거슬러 확인해야 한다
+
+trust 정보는 `$CODEX_HOME/config.toml`(기본 `~/.codex/config.toml`)의
+`[projects."<path>"]` 섹션에 `trust_level = "trusted"`로 기록된다.
+`-c` 오버라이드로는 trust를 부여할 수 없다.
+
 ### 남은 확인
 
 - [ ] 프로젝트를 trusted로 만든 뒤 `AGENTS:`에 역할 6개가 나오는지

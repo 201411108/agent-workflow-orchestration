@@ -95,6 +95,20 @@ npx @hankim.dev/agent-workflow-orchestration@latest update --force
 `features` 또는 `agents` inline table, 비활성화된 필수 flag, 3보다 작은 thread
 상한은 임의로 덮어쓰지 않고 충돌로 보고합니다.
 
+### Codex는 프로젝트 trust가 필요합니다
+
+신뢰되지 않은 프로젝트에서는 Codex가 `.codex/` 레이어 전체를 건너뜁니다. 파일이
+정상 설치되어 있어도 custom agent와 병합된 설정이 무시됩니다. trust는 신뢰된 경로의
+하위 디렉터리로 상속됩니다.
+
+`doctor`가 trust 상태를 보고하므로 설치는 됐는데 동작하지 않는 상황을 진단할 수 있습니다.
+
+```bash
+agent-workflow-orchestration doctor --target codex
+```
+
+`.agents/skills/`의 오케스트레이터 스킬은 `.codex/` 밖이라 trust 없이도 로드됩니다.
+
 Codex 설치 또는 갱신 후 프로젝트를 trusted 상태로 열고 새 Codex 세션을 시작합니다.
 `/skills`에서 `role-orchestrator`, `/agent`에서 활성 custom agent thread를
 확인합니다.

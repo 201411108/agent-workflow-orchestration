@@ -22,6 +22,41 @@
 
 ---
 
+## 2026-09-20 (8) — doctor에 Codex trust 검사 추가
+
+- **작업**
+  - trust 의미론을 대조군으로 확정한 뒤 `doctor`에 검사를 추가했다
+  - `readCodexTrustedPaths()` — `$CODEX_HOME/config.toml`(기본 `~/.codex/config.toml`)의
+    `[projects."<path>"] trust_level = "trusted"`를 훑는다. 전체 TOML 파서를 넣지 않고
+    섹션 헤더와 해당 키만 본다. 읽을 수 없으면 `null`을 반환해 "신뢰 없음"과 구분한다
+  - `findCodexTrustAnchor()` — 조상 경로까지 거슬러 확인하고 가장 구체적인 경로를 보고한다
+  - README, README.ko에 trust 요구사항과 진단 방법을 문서화했다
+
+- **실측으로 확정한 것**
+  - **`.codex/` 레이어 전체가 trust 뒤에 있다.** 같은 `.codex/config.toml`을 두고
+    untrusted 디렉터리에서는 반영 안 됨(`high`), trusted 저장소 루트에서는 반영됨(`low`).
+    (7)의 `AGENTS: NONE`이 우리 결함이 아님이 확증됐다
+  - **trust는 하위 디렉터리로 상속된다.** trusted 경로 아래 임시 디렉터리에서도 반영됨.
+    따라서 정확한 경로 일치가 아니라 조상 탐색이 맞다
+  - `-c` 오버라이드로는 trust를 부여할 수 없다 (대조군으로 `-c` 자체는 동작 확인)
+
+- **검증**
+  - 실제 동작 확인: untrusted 디렉터리 → `[warn] ... not trusted`,
+    저장소 루트 → `[ok] trusted via /Users/hankim/Desktop/workspace/agent-workflow-orchestration`
+  - 스모크 테스트에 3개 시나리오 고정: 신뢰 없음 / 상위 경로 상속 / 신뢰 정보 읽기 불가
+  - **D12 원칙대로 검사를 먼저 깨뜨려 실패를 확인했다.** trust 판정을 항상 trusted로
+    바꾸자 스모크가 `expected output to include "[warn] codex project trust"`로 실패했다
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 — trust 부여 + 사용량 한도 해제 후 가능
+    (2026-09-21 13:39 이후). 이제 `doctor`가 trust 상태를 알려주므로 진단은 가능하다
+  - 1.2b 레거시 마이그레이션 (이월)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.2b 레거시 경로 마이그레이션
+
+---
+
 ## 2026-09-20 (7) — 하네스 실제 로드 검증
 
 - **작업**
