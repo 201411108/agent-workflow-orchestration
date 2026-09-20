@@ -434,3 +434,52 @@ D4가 네이티브라는 것은 중요하다. Claude 서브에이전트는 대�
   Claude Code 스킬의 파일명은 `SKILL.md` 고정이다. 현재 Claude 타깃은 설치되어도
   로드되지 않으며, 역할을 스킬 경로에 둔 것도 잘못이다. 1.2에서 바로잡는다
 - **D9의 worktree 격리는 네이티브다** (`isolation: worktree`). Phase 3.3의 범위가 줄어든다
+
+
+---
+
+## D15. 오케스트레이터는 스킬, 나머지 역할은 서브에이전트로 배포한다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+1.1에서 두 하네스 모두 역할(에이전트)과 스킬이 별도 경로·별도 형식임을 확인했다.
+역할 7개를 어느 쪽으로 배포할지 결정한다.
+
+| 역할 | 배포 단위 | 근거 |
+|---|---|---|
+| `role-orchestrator` | **스킬** | 메인 세션의 라우팅 절차다. 격리된 스레드로 돌 이유가 없고, 핸드오프를 주고받는 주체도 아니다 (D14 판별 기준) |
+| 나머지 6개 | **서브에이전트** | 권한이 다르고 컨텍스트가 격리되며 핸드오프의 주체다 |
+
+타깃별 결과:
+
+| 타깃 | 오케스트레이터 | 나머지 역할 |
+|---|---|---|
+| claude | `.claude/skills/role-orchestrator/SKILL.md` | `.claude/agents/role-*.md` |
+| codex | `.agents/skills/role-orchestrator/SKILL.md` | `.codex/agents/role-*.toml` |
+| cursor | `.cursor/skills/role-orchestrator/SKILL.md` | `.cursor/skills/role-*/SKILL.md` |
+
+Cursor는 1.1 조사 범위 밖이므로 기존 동작을 그대로 유지한다. 별도 조사 후 바꾼다.
+
+### mutationPolicy의 네이티브 권한 매핑
+
+| mutationPolicy | claude | codex |
+|---|---|---|
+| `none` | `tools: Read, Glob, Grep, WebSearch, WebFetch` | `sandbox_mode = "read-only"` |
+| `docs-only` | `tools: Read, Glob, Grep, Write, Edit` | `sandbox_mode = "workspace-write"` |
+| `implementation` | (제한 없음 — 상속) | `sandbox_mode = "workspace-write"` |
+
+**한계**: `docs-only`와 `implementation`의 차이를 경로로 강제하는 네이티브 수단이 없다.
+Claude는 `Bash` 가용 여부로, Codex는 구분 불가로 근사한다. 경로 수준 강제는 1.6 하네스가
+`out_of_scope` 위반으로 탐지한다.
+
+### payload 사본 폐지
+
+`payloads/codex/`의 손으로 쓴 역할 파일(`.codex/agents/*.toml`,
+`.agents/skills/feature-orchestrator/`)을 제거했다. 이제 모든 역할 파일은
+`manifest` + `skills/role-*/SKILL.md`에서 렌더링된다. payload에는 `manifest`로
+표현할 수 없는 것만 남는다 (`AGENTS.block.md`, `config.toml`).
+
+`.codex/config.toml`은 계속 병합한다. `features.multi_agent`와 `agents.enabled`의
+기본값이 `true`이지만(1.1 조사), 소비자가 명시적으로 꺼둔 경우를 덮어써야 하므로
+명시 기록이 맞다.

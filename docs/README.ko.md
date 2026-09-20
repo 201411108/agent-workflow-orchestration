@@ -41,8 +41,8 @@ Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기
 | Target | 런타임 파일 | Shared Specs Path |
 |--------|------------|-------------------|
 | `cursor` | `.cursor/skills/*/SKILL.md` | `.agent-workflow/specs/` |
-| `codex` | `.agents/skills/feature-orchestrator/SKILL.md`, `.codex/agents/*.toml`, `.codex/config.toml`, `AGENTS.md` 관리 블록 | `.agent-workflow/specs/` |
-| `claude` | `.claude/skills/*/CLAUDE.md` | `.agent-workflow/specs/` |
+| `codex` | `.agents/skills/role-orchestrator/SKILL.md`, `.codex/agents/role-*.toml`, `.codex/config.toml`, `AGENTS.md` 관리 블록 | `.agent-workflow/specs/` |
+| `claude` | `.claude/skills/role-orchestrator/SKILL.md`, `.claude/agents/role-*.md` | `.agent-workflow/specs/` |
 
 한 프로젝트에 여러 target 역할 파일을 함께 설치할 수 있으며 모두 동일한 공통 specs와 continuity 상태를 읽습니다.
 
@@ -96,7 +96,7 @@ npx @hankim.dev/agent-workflow-orchestration@latest update --force
 상한은 임의로 덮어쓰지 않고 충돌로 보고합니다.
 
 Codex 설치 또는 갱신 후 프로젝트를 trusted 상태로 열고 새 Codex 세션을 시작합니다.
-`/skills`에서 `feature-orchestrator`, `/agent`에서 활성 custom agent thread를
+`/skills`에서 `role-orchestrator`, `/agent`에서 활성 custom agent thread를
 확인합니다.
 
 ## Specs 초기화

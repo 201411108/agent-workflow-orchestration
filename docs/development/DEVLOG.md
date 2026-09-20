@@ -22,6 +22,52 @@
 
 ---
 
+## 2026-09-20 (6) — 1.2 역할 시스템 통합
+
+- **작업**
+  - 어댑터 스키마 교체. `fileName` 단일 값 → `roleFilePattern`, `roleFormat`,
+    `orchestratorAs`, `skillFilePattern`, `rolesDir`, `permissions`
+  - `renderTargetRoleFile`을 3개 포맷으로 분기 (`passthrough` / `markdown-frontmatter` / `toml`)
+  - `getManagedRoleFiles`가 payload 사본을 읽지 않고 manifest + SKILL.md에서 렌더링
+  - **Claude 타깃 결함 수정.** 7개 역할이 이제 `.claude/agents/role-*.md`(서브에이전트 6개)와
+    `.claude/skills/role-orchestrator/SKILL.md`(스킬 1개)로 배포된다
+  - Codex도 동일 구조로 7개 전부 배포 (기존 3개 → 7개)
+  - `validate` 재작성: 스키마 필수 키, 권한 매핑 3종, 포맷별 구조, 역할 수 = 배포 파일 수
+  - `payloads/codex/`의 손으로 쓴 역할 파일 4개 제거. 이제 payload에는
+    `AGENTS.block.md`와 `config.toml`만 남는다
+  - 루트 `.codex/config.toml` 제거 (D10 잔여 항목 해소)
+  - `list`/`doctor`의 하드코딩된 `feature-orchestrator`, planner/designer/developer 제거
+  - README, README.ko 경로 표 갱신
+  - 스모크 테스트를 새 구조로 갱신 (파일 수 4 → 7, 경로/이름 변경, TOML 키 검증 추가)
+
+- **결정**
+  - D15 — 오케스트레이터는 스킬, 나머지 6개는 서브에이전트. 판별은 D14 기준
+    ("핸드오프를 주고받는가"). 오케스트레이터는 메인 세션의 라우팅 절차다
+  - `mutationPolicy` 네이티브 매핑 확정. `docs-only`와 `implementation`을 경로로
+    강제하는 네이티브 수단이 없어 근사하며, 경로 위반은 1.6 하네스가 탐지한다
+  - `.codex/config.toml`은 계속 병합한다. `features.multi_agent`/`agents.enabled`가
+    기본 true지만 소비자가 명시적으로 꺼둔 경우를 덮어써야 한다
+  - Cursor는 1.1 조사 범위 밖이라 기존 동작 유지. 별도 조사 후 변경
+
+- **회귀 방지**
+  - `renderTargetRoleFile` 교체로 1.0.x 레거시 소유권 증명이 깨질 뻔했다.
+    구 렌더링을 `renderLegacyCodexRoleFile`로 분리 보존했다.
+    레거시 판정에만 쓰이며 새 배포에는 사용하지 않는다
+
+- **미해결**
+  - ⚠️ **1.2b 레거시 마이그레이션.** 구버전 설치본을 update하면 새 레이아웃은 정상
+    생성되지만 구 파일 7개(`.claude/skills/role-*/CLAUDE.md`)가 고아로 남는다.
+    state에서 빠져 uninstall로도 지워지지 않는다. 실측 확인함. 파괴적이지는 않다
+  - `adapters/*.json`의 `legacyRolePaths`는 선언만 되어 있고 아직 코드가 읽지 않는다.
+    1.2b의 입력이다
+  - **하네스 실행 미검증.** 새 Codex/Claude 세션에서 역할이 실제로 로드되는지는
+    확인하지 않았다. 문서 규약과 일치시켰을 뿐이다
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.2b 레거시 경로 마이그레이션
+
+---
+
 ## 2026-09-20 (5) — 1.1 하네스 네이티브 조사 완료
 
 - **작업**

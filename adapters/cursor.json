@@ -1,13 +1,23 @@
 {
   "target": "cursor",
   "label": "Cursor Adapter",
+  "roleFilePattern": "{role}/SKILL.md",
+  "roleFormat": "passthrough",
+  "orchestratorAs": "role",
   "fileName": "SKILL.md",
   "projectPaths": {
+    "rolesDir": ".cursor/skills",
     "skillsDir": ".cursor/skills",
     "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
+    "rolesDir": ".cursor/skills",
     "skillsDir": ".cursor/skills",
     "specsDir": ".agent-workflow/specs"
+  },
+  "permissions": {
+    "none": {},
+    "docs-only": {},
+    "implementation": {}
   }
 }

@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.1 완료, 1.2 미착수**
-- 다음 작업: **1.2 역할 시스템 통합** (1.1 결과로 범위가 늘었다)
+- 진행 단계: **Phase 1 — 1.2 완료(하네스 실행 검증 미완), 1.2b 미착수**
+- 다음 작업: **1.2b 레거시 경로 마이그레이션**
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -145,28 +145,55 @@ Claude 타깃은 현재 설치되어도 로드되지 않는 상태로 확인됐�
 Claude Code 스킬 파일명은 `SKILL.md` 고정이라 **설치되어도 로드되지 않는다.**
 역할을 스킬 경로에 둔 것도 잘못이다. 역할은 서브에이전트다.
 
-- [ ] **Claude 타깃을 역할=서브에이전트로 재구성한다.** `.claude/agents/<role>.md`,
+- [x] **Claude 타깃을 역할=서브에이전트로 재구성한다.** `.claude/agents/<role>.md`,
       Markdown + YAML frontmatter
-- [ ] **어댑터 스키마를 바꾼다.** `fileName` 단일 값으로는 부족하다.
+- [x] **어댑터 스키마를 바꾼다.** `fileName` 단일 값으로는 부족하다.
       타깃마다 역할 경로와 스킬 경로가 분리되고 파일 형식도 다르다 (Markdown / TOML)
-- [ ] **`mutationPolicy` → 네이티브 권한 키 렌더링 표**를 만든다
+- [x] **`mutationPolicy` → 네이티브 권한 키 렌더링 표**를 만든다
       (Claude `permissionMode`/`tools`, Codex `sandbox_mode`)
-- [ ] **`.codex/config.toml` 처리 결정.** `features.multi_agent`와 `agents.enabled`는
+- [x] **`.codex/config.toml` 처리 결정.** `features.multi_agent`와 `agents.enabled`는
       기본값이 `true`이므로 payload의 config는 `max_concurrent_threads_per_session`만
       실질적 의미를 갖는다. 루트에 남겨둔 파일도 함께 정리한다
 
-- [ ] 오케스트레이터 정본을 `skills/role-orchestrator/SKILL.md`로 정한다
-- [ ] `.agents/skills/feature-orchestrator/SKILL.md`를 손으로 쓴 파일에서
+- [x] 오케스트레이터 정본을 `skills/role-orchestrator/SKILL.md`로 정한다
+- [x] `.agents/skills/feature-orchestrator/SKILL.md`를 손으로 쓴 파일에서
       정본의 렌더링 결과로 바꾼다
-- [ ] custom agent `.toml`을 `manifest` + `SKILL.md`에서 렌더링하도록 바꾼다
+- [x] custom agent `.toml`을 `manifest` + `SKILL.md`에서 렌더링하도록 바꾼다
       (현재는 계약과 실행 파일이 따로 관리되어 갈라졌다)
-- [ ] 7개 역할 전부 `payloads/codex/.codex/agents/`로 배포되게 한다
-- [ ] `validate`에 "manifest 역할 수 = 배포되는 agent 수" 검사를 추가한다
+- [x] 7개 역할 전부 배포되게 한다 (오케스트레이터는 스킬, 나머지 6개는 에이전트 — D15)
+- [x] `validate`에 "manifest 역할 수 = 배포 파일 수" 검사를 추가한다
 
 완료 기준:
-- `npm run check` 통과
-- 새 Codex 세션에서 `/agent`에 7개 역할이 전부 보인다
-- 오케스트레이터 라우팅 정의가 저장소에 단 한 곳만 존재한다
+- [x] `npm run check` 통과
+- [x] 오케스트레이터 라우팅 정의가 저장소에 단 한 곳만 존재한다
+- [ ] 새 Codex 세션에서 `/agent`에 역할이 보인다 — **미검증.** 실제 하네스 실행 확인 필요
+
+### 1.2b 레거시 경로 마이그레이션
+
+1.2에서 배포 경로가 바뀌어 기존 설치본에 고아 파일이 남는다. 실측 결과:
+
+```
+구버전 설치 → 신버전 update 실행 후
+  .claude/agents/role-*.md              ← 새로 생성되고 state에 기록됨 (정상)
+  .claude/skills/role-orchestrator/SKILL.md  ← 정상
+  .claude/skills/role-*/CLAUDE.md       ← 7개 고아. state에서 빠져 uninstall로도 안 지워진다
+```
+
+파괴적이지는 않다. 구 파일은 Claude Code가 애초에 로드하지 않았으므로 무해하지만,
+`uninstall` 후에도 남아 사용자 저장소를 더럽힌다.
+
+`adapters/*.json`의 `legacyRolePaths` 키가 이 작업의 입력이다. 현재는 선언만 되어 있고
+코드가 읽지 않는다.
+
+- [ ] `getLegacyCodexPlan`을 타깃 공통 `getLegacyRolePlan(adapter, targetState)`로 일반화한다
+- [ ] 기록된 해시로 소유권이 증명될 때만 제거한다. 증명 불가 파일은 보고하고 중단한다
+- [ ] 1.0.x Codex 레거시 경로(`.codex/skills/role-*/AGENT.md`) 처리를 유지한다
+      (`renderLegacyCodexRoleFile`이 그 렌더링을 보존하고 있다)
+- [ ] 스모크 테스트에 구버전 설치 → 신버전 update → 고아 없음 시나리오를 추가한다
+
+완료 기준:
+- 구버전 설치본을 update하면 구 경로 파일이 남지 않는다
+- 사용자가 수정한 구 파일은 제거되지 않고 경로가 보고된다
 
 ### 1.3 역할 계약에 Activation / Done / Stop 추가
 

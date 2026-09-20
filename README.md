@@ -41,8 +41,8 @@ The documents are not one-time handoffs. They can be revised during development 
 | Target | Runtime files | Shared Specs Path |
 |--------|---------------|-------------------|
 | `cursor` | `.cursor/skills/*/SKILL.md` | `.agent-workflow/specs/` |
-| `codex` | `.agents/skills/feature-orchestrator/SKILL.md`, `.codex/agents/*.toml`, `.codex/config.toml`, managed `AGENTS.md` block | `.agent-workflow/specs/` |
-| `claude` | `.claude/skills/*/CLAUDE.md` | `.agent-workflow/specs/` |
+| `codex` | `.agents/skills/role-orchestrator/SKILL.md`, `.codex/agents/role-*.toml`, `.codex/config.toml`, managed `AGENTS.md` block | `.agent-workflow/specs/` |
+| `claude` | `.claude/skills/role-orchestrator/SKILL.md`, `.claude/agents/role-*.md` | `.agent-workflow/specs/` |
 
 Multiple targets can be installed in one project. Their role files read the same harness-neutral specs and continuity state.
 
@@ -97,7 +97,7 @@ disabled required flags, and a thread cap below three are reported as conflicts
 instead of being rewritten.
 
 After a Codex install or update, open the project as trusted and start a new
-Codex session. Confirm `feature-orchestrator` with `/skills` and active custom
+Codex session. Confirm `role-orchestrator` with `/skills` and active custom
 agent threads with `/agent`.
 
 ## Initialize Specs

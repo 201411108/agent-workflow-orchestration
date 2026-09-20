@@ -70,15 +70,15 @@ function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-function smokeTarget(target, rootDir, roleFileName, targetDir) {
+function smokeTarget(target, rootDir, orchestratorPath, rolePath) {
   run(["install", "--target", target], rootDir);
   run(["init"], rootDir);
   const feature = run(["feature", "--name", "user-onboarding"], rootDir);
   const rerun = run(["feature", "--name", "user-onboarding"], rootDir);
   run(["doctor", "--target", target], rootDir);
 
-  assertExists(path.join(rootDir, targetDir, "skills", "role-orchestrator", roleFileName));
-  assertExists(path.join(rootDir, targetDir, "skills", "role-reviewer", roleFileName));
+  assertExists(path.join(rootDir, ...orchestratorPath));
+  assertExists(path.join(rootDir, ...rolePath));
   assertExists(path.join(rootDir, ".agent-workflow", "workflow.json"));
   assertJsonField(path.join(rootDir, ".agent-workflow", "workflow.json"), "schemaVersion", 2);
   assertJsonField(path.join(rootDir, ".agent-workflow", "workflow.json"), "specsRoot", ".agent-workflow/specs");
@@ -89,7 +89,7 @@ function smokeTarget(target, rootDir, roleFileName, targetDir) {
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "articulate.md"));
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "designs.md"));
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "specs.md"));
-  assertNotExists(path.join(rootDir, targetDir, "specs"));
+  assertNotExists(path.join(rootDir, orchestratorPath[0], "specs"));
   assertExists(path.join(rootDir, ".agent-workflow", ".local", "state.json"));
   assertIncludes(feature.stdout, "3 written, 0 skipped");
   assertIncludes(rerun.stdout, "0 written, 3 skipped");
@@ -111,10 +111,21 @@ function smokeCodex(rootDir) {
   run(["update", "--target", "codex"], rootDir);
   const doctor = run(["doctor", "--target", "codex"], rootDir);
 
-  assertExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  for (const roleName of ["planner", "designer", "developer"]) {
-    assertExists(path.join(rootDir, ".codex", "agents", `${roleName}.toml`));
+  assertExists(path.join(rootDir, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  for (const roleName of ["planner", "designer", "developer", "researcher", "architect", "reviewer"]) {
+    assertExists(path.join(rootDir, ".codex", "agents", `role-${roleName}.toml`));
   }
+  const plannerAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-planner.toml"),
+    "utf8"
+  );
+  assertIncludes(plannerAgent, 'name = "role-planner"');
+  assertIncludes(plannerAgent, "developer_instructions =");
+  const researcherAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-researcher.toml"),
+    "utf8"
+  );
+  assertIncludes(researcherAgent, 'sandbox_mode = "read-only"');
   const config = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
   assertIncludes(config, "# keep this comment");
   assertIncludes(config, 'model = "consumer-model"');
@@ -131,15 +142,15 @@ function smokeCodex(rootDir) {
   );
   if (
     state.schemaVersion !== 3 ||
-    Object.keys(state.targets.codex.files).length !== 4 ||
+    Object.keys(state.targets.codex.files).length !== 7 ||
     state.targets.codex.shared.config.addedKeys.length !== 2
   ) {
     throw new Error("Codex install state must record full-file and shared-key ownership");
   }
 
   run(["uninstall", "--target", "codex"], rootDir);
-  assertNotExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertNotExists(path.join(rootDir, ".codex", "agents", "planner.toml"));
+  assertNotExists(path.join(rootDir, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(rootDir, ".codex", "agents", "role-planner.toml"));
   const remainingConfig = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
   assertIncludes(remainingConfig, "# keep this comment");
   assertIncludes(remainingConfig, 'model = "consumer-model"');
@@ -171,9 +182,19 @@ const codexDottedFixture = makeFixture();
 const codexOwnedFileConflictFixture = makeFixture();
 
 try {
-  smokeTarget("cursor", cursorFixture, "SKILL.md", ".cursor");
+  smokeTarget(
+    "cursor",
+    cursorFixture,
+    [".cursor", "skills", "role-orchestrator", "SKILL.md"],
+    [".cursor", "skills", "role-reviewer", "SKILL.md"]
+  );
   smokeCodex(codexFixture);
-  smokeTarget("claude", claudeFixture, "CLAUDE.md", ".claude");
+  smokeTarget(
+    "claude",
+    claudeFixture,
+    [".claude", "skills", "role-orchestrator", "SKILL.md"],
+    [".claude", "agents", "role-reviewer.md"]
+  );
 
   run(["install", "--target", "cursor"], multiTargetFixture);
   run(["init"], multiTargetFixture);
@@ -191,7 +212,7 @@ try {
   assertExists(userTargetFile);
   assertExists(roleSidecar);
   assertExists(path.join(multiTargetFixture, ".cursor", "skills", "role-orchestrator", "SKILL.md"));
-  assertExists(path.join(multiTargetFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(multiTargetFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   assertExists(path.join(multiTargetFixture, ".agent-workflow", "specs", "features", "shared-feature", "specs.md"));
   run(["uninstall", "--target", "cursor"], multiTargetFixture);
   assertExists(userTargetFile);
@@ -387,7 +408,7 @@ try {
   assertIncludes(customResume.stdout, "docs/agent-specs/features/custom-root/articulate.md");
   run(["install", "--target", "codex"], customSpecsFixture);
   assertExists(path.join(customSpecsFixture, "docs", "agent-specs", "features", "custom-root", "specs.md"));
-  assertExists(path.join(customSpecsFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(customSpecsFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   const customDoctor = run(["doctor", "--target", "codex"], customSpecsFixture);
   assertIncludes(customDoctor.stdout, "docs/agent-specs: present");
 
@@ -434,15 +455,15 @@ try {
   run(["install", "--global", "--target", "codex"], globalFixture, false, {
     HOME: globalFixture,
   });
-  assertExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertExists(path.join(globalFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertExists(path.join(globalFixture, ".codex", "agents", "role-planner.toml"));
   assertExists(path.join(globalFixture, ".codex", "config.toml"));
   assertExists(path.join(globalFixture, ".codex", "AGENTS.md"));
   run(["uninstall", "--global", "--target", "codex"], globalFixture, false, {
     HOME: globalFixture,
   });
-  assertNotExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertNotExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertNotExists(path.join(globalFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(globalFixture, ".codex", "agents", "role-planner.toml"));
   assertNotExists(path.join(globalFixture, ".codex", "config.toml"));
   assertNotExists(path.join(globalFixture, ".codex", "AGENTS.md"));
 
@@ -472,14 +493,14 @@ try {
   run(["update", "--target", "codex"], codexLegacyFixture);
   assertNotExists(legacyRolePath);
   assertExists(path.join(legacyRoleDir, "notes.md"));
-  assertExists(path.join(codexLegacyFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(codexLegacyFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
 
   fs.mkdirSync(path.join(codexConflictFixture, ".codex"), { recursive: true });
   const conflictingConfig = "[features]\nmulti_agent = false\n";
   fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), conflictingConfig);
   const configConflict = run(["install", "--target", "codex"], codexConflictFixture, true);
   assertIncludes(configConflict.stderr || configConflict.stdout, "incompatible TOML value");
-  assertNotExists(path.join(codexConflictFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(codexConflictFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   if (fs.readFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), "utf8") !== conflictingConfig) {
     throw new Error("Codex shared-file preflight conflict must not change config.toml");
   }
@@ -513,7 +534,7 @@ try {
   );
   const guidanceConflict = run(["uninstall", "--target", "codex", "--force"], codexConflictFixture, true);
   assertIncludes(guidanceConflict.stderr || guidanceConflict.stdout, "managed AGENTS.md block was modified");
-  assertExists(path.join(codexConflictFixture, ".codex", "agents", "planner.toml"));
+  assertExists(path.join(codexConflictFixture, ".codex", "agents", "role-planner.toml"));
 
   fs.mkdirSync(path.join(codexDottedFixture, ".codex"), { recursive: true });
   fs.writeFileSync(
@@ -542,11 +563,11 @@ try {
 
   fs.mkdirSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents"), { recursive: true });
   const userPlanner = "# consumer-owned planner\n";
-  fs.writeFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), userPlanner);
+  fs.writeFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "role-planner.toml"), userPlanner);
   const ownedFileConflict = run(["install", "--target", "codex"], codexOwnedFileConflictFixture, true);
   assertIncludes(ownedFileConflict.stderr || ownedFileConflict.stdout, "file exists without package ownership");
   if (
-    fs.readFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), "utf8") !==
+    fs.readFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "role-planner.toml"), "utf8") !==
     userPlanner
   ) {
     throw new Error("Codex full-file conflict must preserve consumer content");

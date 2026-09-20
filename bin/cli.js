@@ -280,6 +280,7 @@ function getTargetPaths(adapter, projectRoot = cwd) {
   const configuredPaths = global ? adapter.globalPaths : adapter.projectPaths;
   if (global) {
     return {
+      rolesDir: path.join(scopeRoot, configuredPaths.rolesDir || configuredPaths.skillsDir),
       skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
       agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
       configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
@@ -288,6 +289,7 @@ function getTargetPaths(adapter, projectRoot = cwd) {
     };
   }
   return {
+    rolesDir: path.join(scopeRoot, configuredPaths.rolesDir || configuredPaths.skillsDir),
     skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
     agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
     configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
@@ -370,34 +372,121 @@ function parseSkill(skillName) {
   };
 }
 
+function readFrontmatterField(frontmatter, field) {
+  const lines = frontmatter.split("\n");
+  const startIndex = lines.findIndex((line) => line.startsWith(`${field}:`));
+  if (startIndex === -1) {
+    return "";
+  }
+  const inlineValue = lines[startIndex].slice(field.length + 1).trim();
+  if (inlineValue && inlineValue !== ">-" && inlineValue !== ">" && inlineValue !== "|") {
+    return inlineValue;
+  }
+  const collected = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (!/^\s/.test(lines[index]) || lines[index].trim() === "") {
+      break;
+    }
+    collected.push(lines[index].trim());
+  }
+  return collected.join(" ");
+}
+
+function getRolePermissions(adapter, mutationPolicy) {
+  const table = adapter.permissions || {};
+  return table[mutationPolicy] || {};
+}
+
+function renderContractSummary(role) {
+  return [
+    "## Contract Summary",
+    "",
+    `- mutation_policy: ${role.mutationPolicy}`,
+    `- required_outputs: ${role.requiredOutputs.join(", ")}`,
+    `- required_tools: ${role.requiredTools.join(", ")}`,
+    `- optional_tools: ${role.optionalTools.join(", ")}`,
+    "",
+  ];
+}
+
+function escapeTomlBasic(value) {
+  return value.split("\\").join("\\\\").split('"').join('\\"');
+}
+
 function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
   const specsRoot = workflow.specsRoot.split(path.sep).join("/");
   const replaceSpecsRoot = (contents) => contents.split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`).join(specsRoot);
-  if (adapter.target === "cursor") {
+
+  const format = adapter.roleFormat || "passthrough";
+  if (format === "passthrough") {
     return replaceSpecsRoot(parsed.raw);
   }
 
   const manifest = loadManifest();
   const role = manifest.skills.find((entry) => entry.name === skillName);
-  const title = role ? role.name : skillName;
-  const requiredOutputs = role ? role.requiredOutputs.join(", ") : "";
-  const requiredTools = role ? role.requiredTools.join(", ") : "";
-  const optionalTools = role ? role.optionalTools.join(", ") : "";
-  const headerLabel = adapter.fileName === "CLAUDE.md" ? "Claude Role Contract" : "Codex Role Contract";
+  if (!role) {
+    throw new Error(`role not found in manifest: ${skillName}`);
+  }
+  const description = readFrontmatterField(parsed.frontmatter, "description");
+  const permissions = getRolePermissions(adapter, role.mutationPolicy);
 
-  return replaceSpecsRoot([
-    `# ${headerLabel}: ${title}`,
+  if (format === "toml") {
+    const instructions = replaceSpecsRoot(
+      [...renderContractSummary(role), parsed.body].join("\n")
+    ).split('"""').join('\\"\\"\\"');
+    const lines = [
+      `name = "${escapeTomlBasic(role.name)}"`,
+      `description = "${escapeTomlBasic(description)}"`,
+    ];
+    for (const key of Object.keys(permissions)) {
+      lines.push(`${key} = "${escapeTomlBasic(permissions[key])}"`);
+    }
+    lines.push('developer_instructions = """', instructions, '"""', "");
+    return lines.join("\n");
+  }
+
+  // markdown-frontmatter (Claude subagent)
+  const frontmatterLines = [`name: ${role.name}`, `description: ${description}`];
+  for (const key of Object.keys(permissions)) {
+    frontmatterLines.push(`${key}: ${permissions[key]}`);
+  }
+  return replaceSpecsRoot(
+    [
+      "---",
+      ...frontmatterLines,
+      "---",
+      "",
+      `# ${adapter.label}: ${role.name}`,
+      "",
+      `Source: skills/${skillName}/SKILL.md`,
+      "",
+      ...renderContractSummary(role),
+      parsed.body,
+    ].join("\n")
+  );
+}
+
+function renderLegacyCodexRoleFile(skillName, projectRoot = cwd) {
+  // 1.0.x가 생성한 .codex/skills/<role>/AGENT.md의 렌더링을 그대로 보존한다.
+  // 레거시 소유권 증명에만 쓰이며 새 배포에는 사용하지 않는다.
+  const parsed = parseSkill(skillName);
+  const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
+  const specsRoot = workflow.specsRoot.split(path.sep).join("/");
+  const role = loadManifest().skills.find((entry) => entry.name === skillName);
+  const title = role ? role.name : skillName;
+  return [
+    `# Codex Role Contract: ${title}`,
     "",
-    `Target: ${adapter.label}`,
+    "Target: Codex Adapter",
     `Source: skills/${skillName}/SKILL.md`,
     "",
     "## Contract Summary",
     "",
-    `- required_outputs: ${requiredOutputs}`,
-    `- required_tools: ${requiredTools}`,
-    `- optional_tools: ${optionalTools}`,
+    `- required_outputs: ${role ? role.requiredOutputs.join(", ") : ""}`,
+    `- required_tools: ${role ? role.requiredTools.join(", ") : ""}`,
+    `- optional_tools: ${role ? role.optionalTools.join(", ") : ""}`,
     "",
     "## Source Frontmatter",
     "",
@@ -406,39 +495,63 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
     "```",
     "",
     parsed.body,
-  ].join("\n"));
+  ]
+    .join("\n")
+    .split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`)
+    .join(specsRoot);
+}
+
+function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
+  const parsed = parseSkill(skillName);
+  const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
+  const specsRoot = workflow.specsRoot.split(path.sep).join("/");
+  const role = loadManifest().skills.find((entry) => entry.name === skillName);
+  const description = readFrontmatterField(parsed.frontmatter, "description");
+  return [
+    "---",
+    `name: ${skillName}`,
+    `description: ${description}`,
+    "---",
+    "",
+    `# ${adapter.label}: ${skillName}`,
+    "",
+    `Source: skills/${skillName}/SKILL.md`,
+    "",
+    ...(role ? renderContractSummary(role) : []),
+    parsed.body,
+  ]
+    .join("\n")
+    .split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`)
+    .join(specsRoot);
+}
+
+function getOrchestratorRoleName() {
+  const manifest = loadManifest();
+  const found = manifest.skills.find((entry) => entry.name.endsWith("orchestrator"));
+  return found ? found.name : null;
 }
 
 function getManagedRoleFiles(adapter, projectRoot = cwd) {
   const paths = getTargetPaths(adapter, projectRoot);
-  if (adapter.target === "codex") {
-    const payloads = [
-      {
-        roleName: "feature-orchestrator",
-        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md"),
-        filePath: path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"),
-      },
-      ...["planner", "designer", "developer"].map((roleName) => ({
-        roleName,
-        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`),
-        filePath: path.join(paths.agentsDir, `${roleName}.toml`),
-      })),
-    ];
-    const scopeRoot = global ? os.homedir() : projectRoot;
-    return payloads.map((entry) => ({
-      roleName: entry.roleName,
-      relativePath: getProjectRelativePath(entry.filePath, scopeRoot),
-      filePath: entry.filePath,
-      contents: readText(entry.sourcePath),
-    }));
-  }
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const orchestrator = getOrchestratorRoleName();
+  const rolePattern = adapter.roleFilePattern || `{role}/${adapter.fileName}`;
+  const skillPattern = adapter.skillFilePattern || `{role}/SKILL.md`;
+
   return loadManifest().skills.map((role) => {
-    const relativePath = path.join(role.name, adapter.fileName);
+    const isOrchestratorSkill = adapter.orchestratorAs === "skill" && role.name === orchestrator;
+    const baseDir = isOrchestratorSkill ? paths.skillsDir : paths.rolesDir;
+    const pattern = isOrchestratorSkill ? skillPattern : rolePattern;
+    const relativePath = pattern.split("{role}").join(role.name);
+    const filePath = path.join(baseDir, ...relativePath.split("/"));
+    const contents = isOrchestratorSkill
+      ? renderOrchestratorSkillFile(adapter, role.name, projectRoot)
+      : renderTargetRoleFile(adapter, role.name, projectRoot);
     return {
       roleName: role.name,
-      relativePath,
-      filePath: path.join(paths.skillsDir, relativePath),
-      contents: renderTargetRoleFile(adapter, role.name, projectRoot),
+      relativePath: getProjectRelativePath(filePath, scopeRoot),
+      filePath,
+      contents,
     };
   });
 }
@@ -630,13 +743,6 @@ function getLegacyCodexPlan(targetState, projectRoot = cwd) {
   const scopeRoot = global ? os.homedir() : projectRoot;
   const legacySkillsDir = path.join(scopeRoot, ".codex", "skills");
   const recordedFiles = (targetState && targetState.files) || {};
-  const legacyAdapter = {
-    target: "codex",
-    label: "Codex Adapter",
-    fileName: "AGENT.md",
-    projectPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
-    globalPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
-  };
   const removable = [];
   const conflicts = [];
   for (const role of loadManifest().skills) {
@@ -647,7 +753,7 @@ function getLegacyCodexPlan(targetState, projectRoot = cwd) {
     }
     const currentHash = sha256(fs.readFileSync(filePath));
     const recordedHash = recordedFiles[relativePath];
-    const expectedHash = sha256(renderTargetRoleFile(legacyAdapter, role.name, projectRoot));
+    const expectedHash = sha256(renderLegacyCodexRoleFile(role.name, projectRoot));
     const knownV1Hash = KNOWN_CODEX_V1_LEGACY_HASHES[relativePath];
     if ((recordedHash && currentHash === recordedHash) || currentHash === expectedHash || currentHash === knownV1Hash) {
       removable.push({ roleName: role.name, relativePath, filePath });
@@ -741,7 +847,7 @@ function install() {
 
   for (const managedFile of managedFiles) {
     if (fs.existsSync(managedFile.filePath) && !force) {
-      console.log(`  [skip] ${managedFile.roleName} (${adapter.fileName} already exists)`);
+      console.log(`  [skip] ${managedFile.roleName} (${managedFile.relativePath} already exists)`);
       skipped++;
       continue;
     }
@@ -953,26 +1059,18 @@ function list() {
   for (const adapter of adapters) {
     const projectPaths = getTargetPaths(adapter);
     console.log(`  [${adapter.target}] ${adapter.label}`);
-    console.log(`    skills: ${projectPaths.skillsDir}`);
+    console.log(`    roles: ${projectPaths.rolesDir}`);
+    if (projectPaths.skillsDir !== projectPaths.rolesDir) {
+      console.log(`    skills: ${projectPaths.skillsDir}`);
+    }
     console.log(`    specs: ${projectPaths.specsDir}`);
+    for (const managedFile of getManagedRoleFiles(adapter)) {
+      const status = fs.existsSync(managedFile.filePath) ? "installed" : "-";
+      console.log(`    ${managedFile.roleName} (${status})`);
+    }
     if (adapter.target === "codex") {
-      console.log(
-        `    feature-orchestrator (${fs.existsSync(path.join(projectPaths.skillsDir, "feature-orchestrator", "SKILL.md")) ? "installed" : "-"})`
-      );
-      for (const roleName of ["planner", "designer", "developer"]) {
-        console.log(
-          `    ${roleName} (${fs.existsSync(path.join(projectPaths.agentsDir, `${roleName}.toml`)) ? "installed" : "-"})`
-        );
-      }
       console.log(`    config: ${projectPaths.configFile}`);
       console.log(`    guidance: ${projectPaths.guidanceFile}`);
-      console.log();
-      continue;
-    }
-    for (const role of manifest.skills) {
-      const roleFile = path.join(projectPaths.skillsDir, role.name, adapter.fileName);
-      const status = fs.existsSync(roleFile) ? "installed" : "-";
-      console.log(`    ${role.name} (${status})`);
     }
     console.log();
   }
@@ -1429,28 +1527,28 @@ function validateSkill(skillName, manifestEntry) {
 function validateAdapter(adapter, manifest) {
   const failures = [];
 
-  if (!adapter.fileName || !adapter.projectPaths || !adapter.projectPaths.skillsDir || !adapter.projectPaths.specsDir) {
-    failures.push(`adapter ${adapter.target} is missing required path metadata`);
+  for (const field of ["roleFilePattern", "roleFormat", "permissions"]) {
+    if (!adapter[field]) {
+      failures.push(`adapter ${adapter.target} is missing ${field}`);
+    }
   }
-  if (adapter.target === "codex") {
-    for (const scopeName of ["projectPaths", "globalPaths"]) {
-      for (const field of ["skillsDir", "agentsDir", "configFile", "guidanceFile"]) {
-        if (!adapter[scopeName] || !adapter[scopeName][field]) {
-          failures.push(`adapter codex ${scopeName} is missing ${field}`);
-        }
+  for (const scopeName of ["projectPaths", "globalPaths"]) {
+    for (const field of ["rolesDir", "skillsDir", "specsDir"]) {
+      if (!adapter[scopeName] || !adapter[scopeName][field]) {
+        failures.push(`adapter ${adapter.target} ${scopeName} is missing ${field}`);
       }
     }
-    const skillPath = path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md");
-    const skillContents = fs.existsSync(skillPath) ? readText(skillPath) : "";
-    if (!/^---\n[\s\S]*?name:\s*feature-orchestrator\n[\s\S]*?description:\s*>-/m.test(skillContents)) {
-      failures.push("Codex feature-orchestrator payload has invalid or incomplete frontmatter");
+  }
+  for (const policy of ["none", "docs-only", "implementation"]) {
+    if (!adapter.permissions || !adapter.permissions[policy]) {
+      failures.push(`adapter ${adapter.target} has no permission mapping for ${policy}`);
     }
-    for (const roleName of ["planner", "designer", "developer"]) {
-      const agentPath = path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`);
-      const contents = fs.existsSync(agentPath) ? readText(agentPath) : "";
-      for (const token of [`name = "${roleName}"`, "description =", "developer_instructions ="]) {
-        if (!contents.includes(token)) {
-          failures.push(`Codex ${roleName}.toml is missing ${token}`);
+  }
+  if (adapter.target === "codex") {
+    for (const field of ["agentsDir", "configFile", "guidanceFile"]) {
+      for (const scopeName of ["projectPaths", "globalPaths"]) {
+        if (!adapter[scopeName] || !adapter[scopeName][field]) {
+          failures.push(`adapter codex ${scopeName} is missing ${field}`);
         }
       }
     }
@@ -1459,26 +1557,76 @@ function validateAdapter(adapter, manifest) {
     } catch (error) {
       failures.push(`Codex config payload is invalid: ${error.message}`);
     }
+  }
+  if (failures.length > 0) {
     return failures;
   }
 
+  const orchestrator = manifest.skills.find((entry) => entry.name.endsWith("orchestrator"));
+  const renderedPaths = new Set();
+
   for (const role of manifest.skills) {
-    const rendered = renderTargetRoleFile(adapter, role.name);
+    const isOrchestratorSkill = adapter.orchestratorAs === "skill" && orchestrator && role.name === orchestrator.name;
+    const rendered = isOrchestratorSkill
+      ? renderOrchestratorSkillFile(adapter, role.name)
+      : renderTargetRoleFile(adapter, role.name);
+
     for (const output of role.requiredOutputs) {
       if (!rendered.includes(output)) {
         failures.push(`adapter ${adapter.target} render for ${role.name} missing output key: ${output}`);
       }
     }
-    if (adapter.target === "cursor" && !rendered.includes("name:")) {
-      failures.push(`adapter ${adapter.target} render for ${role.name} must preserve source frontmatter`);
+
+    const format = isOrchestratorSkill ? "markdown-frontmatter" : adapter.roleFormat;
+    if (format === "passthrough") {
+      if (!rendered.includes("name:")) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} must preserve source frontmatter`);
+      }
+    } else if (format === "markdown-frontmatter") {
+      if (!rendered.startsWith("---\n")) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} must start with YAML frontmatter`);
+      }
+      if (!rendered.includes(`name: ${role.name}\n`)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} missing name field`);
+      }
+      if (!/\ndescription: \S/.test(rendered)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has an empty description`);
+      }
+    } else if (format === "toml") {
+      for (const token of [`name = "${role.name}"`, "description = \"", "developer_instructions = \"\"\""]) {
+        if (!rendered.includes(token)) {
+          failures.push(`adapter ${adapter.target} render for ${role.name} missing TOML key: ${token.trim()}`);
+        }
+      }
+      if (!/\ndescription = "\S/.test(rendered)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has an empty TOML description`);
+      }
     }
-    if (adapter.target === "claude" && !rendered.includes("Claude Role Contract")) {
-      failures.push(`adapter ${adapter.target} render for ${role.name} missing Claude header`);
+
+    if (!isOrchestratorSkill) {
+      const permissions = adapter.permissions[role.mutationPolicy] || {};
+      for (const key of Object.keys(permissions)) {
+        if (!rendered.includes(key)) {
+          failures.push(`adapter ${adapter.target} render for ${role.name} missing permission key: ${key}`);
+        }
+      }
     }
+
+    const pattern = isOrchestratorSkill
+      ? adapter.skillFilePattern || "{role}/SKILL.md"
+      : adapter.roleFilePattern;
+    renderedPaths.add(pattern.split("{role}").join(role.name));
+  }
+
+  if (renderedPaths.size !== manifest.skills.length) {
+    failures.push(
+      `adapter ${adapter.target} produces ${renderedPaths.size} file path(s) for ${manifest.skills.length} role(s)`
+    );
   }
 
   return failures;
 }
+
 
 function validate() {
   console.log("\n  Agent Workflow Validation\n");
@@ -1554,18 +1702,21 @@ function doctor() {
 
   if (adapter.target === "codex") {
     const codexFiles = getManagedRoleFiles(adapter);
+    const orchestratorName = getOrchestratorRoleName();
+    const skillFiles = codexFiles.filter((entry) => entry.roleName === orchestratorName);
+    const agentFiles = codexFiles.filter((entry) => entry.roleName !== orchestratorName);
+    const skillsOk = skillFiles.every((entry) => fs.existsSync(entry.filePath));
+    const agentsOk = agentFiles.every((entry) => fs.existsSync(entry.filePath));
     findings.push({
       label: `${global ? adapter.globalPaths.skillsDir : adapter.projectPaths.skillsDir}`,
-      ok: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md")),
-      detail: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"))
-        ? "feature-orchestrator present"
-        : "missing (run install)",
+      ok: skillsOk,
+      detail: skillsOk ? `${orchestratorName} present` : "missing (run install)",
     });
     findings.push({
       label: `${global ? adapter.globalPaths.agentsDir : adapter.projectPaths.agentsDir}`,
-      ok: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath)),
-      detail: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath))
-        ? "planner, designer, and developer present"
+      ok: agentsOk,
+      detail: agentsOk
+        ? `${agentFiles.length} custom agent(s) present`
         : "one or more custom agents are missing",
     });
     let configOk = false;

@@ -1,8 +1,13 @@
 {
   "target": "codex",
   "label": "Codex Adapter",
+  "roleFilePattern": "{role}.toml",
+  "roleFormat": "toml",
+  "orchestratorAs": "skill",
+  "skillFilePattern": "{role}/SKILL.md",
   "fileName": "SKILL.md",
   "projectPaths": {
+    "rolesDir": ".codex/agents",
     "skillsDir": ".agents/skills",
     "agentsDir": ".codex/agents",
     "configFile": ".codex/config.toml",
@@ -10,10 +15,22 @@
     "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
+    "rolesDir": ".codex/agents",
     "skillsDir": ".agents/skills",
     "agentsDir": ".codex/agents",
     "configFile": ".codex/config.toml",
     "guidanceFile": ".codex/AGENTS.md",
     "specsDir": ".agent-workflow/specs"
-  }
+  },
+  "permissions": {
+    "none": { "sandbox_mode": "read-only" },
+    "docs-only": { "sandbox_mode": "workspace-write" },
+    "implementation": { "sandbox_mode": "workspace-write" }
+  },
+  "legacyRolePaths": [
+    { "dir": ".agents/skills", "pattern": "feature-orchestrator/SKILL.md" },
+    { "dir": ".codex/agents", "pattern": "planner.toml" },
+    { "dir": ".codex/agents", "pattern": "designer.toml" },
+    { "dir": ".codex/agents", "pattern": "developer.toml" }
+  ]
 }

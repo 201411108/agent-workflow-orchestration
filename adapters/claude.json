@@ -1,13 +1,27 @@
 {
   "target": "claude",
   "label": "Claude Adapter",
+  "roleFilePattern": "{role}.md",
+  "roleFormat": "markdown-frontmatter",
+  "orchestratorAs": "skill",
+  "skillFilePattern": "{role}/SKILL.md",
   "fileName": "CLAUDE.md",
   "projectPaths": {
+    "rolesDir": ".claude/agents",
     "skillsDir": ".claude/skills",
     "specsDir": ".agent-workflow/specs"
   },
   "globalPaths": {
+    "rolesDir": ".claude/agents",
     "skillsDir": ".claude/skills",
     "specsDir": ".agent-workflow/specs"
-  }
+  },
+  "permissions": {
+    "none": { "tools": "Read, Glob, Grep, WebSearch, WebFetch" },
+    "docs-only": { "tools": "Read, Glob, Grep, Write, Edit" },
+    "implementation": {}
+  },
+  "legacyRolePaths": [
+    { "dir": ".claude/skills", "pattern": "{role}/CLAUDE.md" }
+  ]
 }
