@@ -22,6 +22,48 @@
 
 ---
 
+## 2026-09-20 (5) — 1.1 하네스 네이티브 조사 완료
+
+- **작업**
+  - `docs/development/HARNESS_CAPABILITIES.md` 작성. Claude Code 문서 2편,
+    Codex 문서 3편을 확인해 8개 영역 대조. 모든 칸에 출처 표기, 미확인 4건 명시
+  - D2~D6, D14에 네이티브/보완/충돌 판정 기록
+  - ROADMAP 1.1 완료 처리, 1.2 범위 확대
+
+- **결정 (판정 결과)**
+  - **충돌 없음.** D2~D6, D14를 수정하지 않는다. 우리가 만들 범위만 줄었다
+  - **D3 병렬 = 네이티브.** 동시성 상한은 Claude 환경변수(기본 20)와
+    Codex `agents.max_concurrent_threads_per_session`. 스케줄러를 만들지 않는다
+  - **D4 직접 대화 금지 = 네이티브.** Claude 서브에이전트는 대화 이력을 받지 못하고
+    결과만 부모로 반환하므로 에이전트 간 직접 대화가 구조적으로 불가능하다.
+    우리가 강제할 규칙이 아니라 하네스가 이미 강제하는 구조였다
+  - **D14 스킬 바인딩 = 네이티브.** Claude 서브에이전트 frontmatter `skills:`,
+    Codex `[[skills.config]]`의 `enabled`/`path`. 프롬프트 지시로 격하되지 않는다
+  - **D2·D5 = 보완.** 네이티브 위임은 "누구에게"만 정하고 산출물 의존성 계산은 없다.
+    구조화 컨텍스트 전달 경로도 없어 핸드오프는 task message에 싣는다
+  - **D6 = 부분.** `maxSteps`는 Claude `maxTurns`에 위임. `maxReentry`,
+    `noProgressLimit`, `out_of_scope` 위반 감지는 드라이버가 만든다
+  - **D9 worktree 격리 = 네이티브** (`isolation: worktree`). Phase 3.3 범위 축소
+
+- **확정된 결함**
+  - ⚠️ **`adapters/claude.json`이 동작하지 않는다.** `.claude/skills/<role>/CLAUDE.md`를
+    생성하는데 Claude Code 스킬 파일명은 `SKILL.md` 고정이다. 게다가 역할을 스킬 경로에
+    두었다 — 역할은 서브에이전트(`.claude/agents/<name>.md`)다. 두 가지가 동시에 틀렸다.
+    **현재 Claude 타깃은 설치되어도 로드되지 않는다.** 1.2에서 바로잡는다
+  - Codex 타깃 경로(`.agents/skills/`, `.codex/agents/`)는 정확하다
+
+- **미해결**
+  - Codex 미확인 4건: 역할별 도구 허용 목록(sandbox_mode 외), 하위 에이전트 spawn
+    대상 제한, 턴 수 상한 키, Claude 스킬 카탈로그 토큰 예산. 1.2에서 필요해지면 재조사
+  - `.codex/config.toml` 처리 — 1.2 범위로 편입. `features.multi_agent`와
+    `agents.enabled`가 기본 true이므로 실질 의미는 `max_concurrent_threads_per_session`뿐
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.2 역할 시스템 통합. 1.1 결과로 Claude 타깃 재구성과
+  어댑터 스키마 변경이 추가됐다
+
+---
+
 ## 2026-09-20 (4) — 역할·스킬·도구 용어 확정
 
 - **작업**
