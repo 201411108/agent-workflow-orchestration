@@ -22,6 +22,44 @@
 
 ---
 
+## 2026-09-20 (7) — 하네스 실제 로드 검증
+
+- **작업**
+  - 검증 프로젝트에 claude/codex 두 타깃을 설치하고 실제 CLI로 로드 확인
+  - 결과와 근거를 HARNESS_CAPABILITIES 9절에 기록
+  - `validate`에 검사 2건 추가: AGENTS 블록의 역할 이름 누락, TOML 여러 줄 구분자 불균형
+
+- **결과**
+  - **Claude 통과.** `role-architect/designer/developer/planner/researcher/reviewer`
+    6개가 서브에이전트로, `role-orchestrator`가 스킬로 전부 노출된다.
+    1.2 이전 레이아웃이었다면 하나도 나오지 않는다. 결함 수정이 실증됐다
+  - **Codex 부분 통과.** `role-orchestrator` 스킬은 로드되지만 custom agent는 `NONE`
+  - 원인은 프로젝트 trust. 근거 체인: 프로젝트 `.codex/config.toml`의
+    `model_reasoning_effort`가 헤더에 반영되지 않음 → `-c` 대조군은 반영됨 →
+    `~/.codex/config.toml`의 trusted 목록에 검증 디렉터리 없음 → 공식 문서가
+    "untrusted projects skip the .codex/ layer entirely"라고 명시.
+    **우리 파일의 결함이 아니다**
+  - 생성된 TOML 6개 전부 `tomllib` 파싱 성공, 필수 키 보유, `sandbox_mode`가
+    `mutationPolicy`와 일치
+
+- **검증으로 발견한 버그 (수정함)**
+  - `payloads/codex/AGENTS.block.md`가 구 이름(`$feature-orchestrator`,
+    `planner`/`designer`/`developer`)을 참조해 설치된 `AGENTS.md`가 존재하지 않는
+    이름을 안내했다. 1.2에서 놓쳤다. **정적 검사로는 못 잡고 실제 설치물을 봐서 잡았다**
+
+- **미해결**
+  - Codex custom agent 노출 확인 — trust 부여 후 재시도 필요.
+    `-c`로는 trust를 줄 수 없고 Codex 사용량 한도(2026-09-21 13:39 해제)에 걸렸다.
+    사용자가 검증 디렉터리에서 `codex`를 한 번 열어 trust를 승인하면 확인 가능
+  - `doctor`가 Codex trust 상태를 확인하지 못한다. 설치는 됐는데 역할이 안 보이는
+    상황의 원인을 짚어주지 못한다. 개선 후보
+  - 1.2b 레거시 마이그레이션 (이월)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.2b 레거시 경로 마이그레이션
+
+---
+
 ## 2026-09-20 (6) — 1.2 역할 시스템 통합
 
 - **작업**

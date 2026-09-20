@@ -1,8 +1,8 @@
 <!-- BEGIN agent-workflow-orchestration:codex -->
 ## Codex role orchestration
 
-- Prefer `$feature-orchestrator` for new features, complex requests, and UI/UX changes.
-- Delegate only the roles selected by the orchestrator to the `planner`, `designer`, and `developer` custom agents.
+- Prefer the `role-orchestrator` skill for new features, complex requests, and UI/UX changes.
+- Delegate only the roles it selects to the matching custom agents: `role-researcher`, `role-planner`, `role-designer`, `role-architect`, `role-developer`, `role-reviewer`.
 - Pass compressed decisions, assumptions, risks, open questions, and unverified items between roles instead of the full conversation.
 - Do not delegate simple questions, file reads, or trivial edits unnecessarily.
 - The main agent must review, integrate, and verify subagent work.

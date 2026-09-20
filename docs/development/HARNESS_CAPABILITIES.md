@@ -194,3 +194,83 @@ task message 하나뿐이므로, **핸드오프 스키마는 우리가 정의해
 - Codex의 하위 에이전트 spawn 대상 제한
 - Codex의 턴 수 상한에 해당하는 키
 - Claude 스킬 카탈로그의 토큰 예산 상한
+
+
+---
+
+## 9. 실제 하네스 로드 검증 (2026-09-20)
+
+1.2 배포 결과를 실제 CLI로 확인했다. 검증 프로젝트에 두 타깃을 설치한 뒤
+각 하네스에 자기가 보는 역할 목록을 묻는 방식이다.
+
+환경: Claude Code 2.1.267, codex-cli 0.154.0
+
+### Claude — 통과
+
+```
+AGENTS: claude, Explore, general-purpose, Plan, role-architect, role-designer,
+        role-developer, role-planner, role-researcher, role-reviewer, statusline-setup
+SKILLS: role-orchestrator, dataviz, update-config, ...
+```
+
+서브에이전트 6개와 오케스트레이터 스킬이 전부 로드된다. **1.2 이전 레이아웃
+(`.claude/skills/<role>/CLAUDE.md`)이었다면 하나도 나타나지 않는다.**
+
+### Codex — 스킬 통과, 에이전트는 trust 게이트에 막힘
+
+```
+AGENTS: NONE
+SKILLS: ..., role-orchestrator, ...
+```
+
+`role-orchestrator` 스킬은 로드된다. `.agents/skills/`는 `.codex/` 밖이라
+trust 게이트의 영향을 받지 않는다.
+
+custom agent 6개가 보이지 않는 원인을 다음 순서로 좁혔다.
+
+1. 프로젝트 `.codex/config.toml`에 `model_reasoning_effort = "low"`를 추가해도
+   세션 헤더는 `reasoning effort: high` — **config.toml도 로드되지 않는다**
+2. 대조군으로 `-c model_reasoning_effort="low"`를 주면 헤더가 `low`로 바뀐다 —
+   `-c` 플래그 자체는 정상 동작한다
+3. `~/.codex/config.toml`에 `[projects."<path>"] trust_level = "trusted"` 항목들이
+   존재하고, 검증 디렉터리는 그 목록에 없다
+4. 공식 문서(X1): *"Project-scoped agent files only load when the project is trusted.
+   Untrusted projects skip the `.codex/` layer entirely."*
+
+**결론: `.codex/` 레이어 전체(config + agents)가 프로젝트 trust 뒤에 있다.
+우리 파일의 결함이 아니다.** `-c`로는 trust를 부여할 수 없어(2) 모델 호출 없이는
+최종 확인이 불가능하다.
+
+### 생성된 TOML 정적 검증 — 통과
+
+trust가 부여되면 파싱될 수 있는 상태인지 `tomllib`으로 확인했다.
+
+| 파일 | 필수 키 | sandbox_mode |
+|---|---|---|
+| role-architect.toml | OK | read-only |
+| role-designer.toml | OK | workspace-write |
+| role-developer.toml | OK | workspace-write |
+| role-planner.toml | OK | workspace-write |
+| role-researcher.toml | OK | read-only |
+| role-reviewer.toml | OK | read-only |
+
+6개 전부 `name`/`description`/`developer_instructions`를 갖추고 파싱되며
+`sandbox_mode`가 `mutationPolicy`와 일치한다. `config.toml`도 파싱된다.
+
+### 검증으로 발견한 버그
+
+`payloads/codex/AGENTS.block.md`가 구 이름을 참조하고 있었다.
+`$feature-orchestrator`와 `planner`/`designer`/`developer` custom agent를 안내해
+설치된 `AGENTS.md`가 존재하지 않는 이름을 가리켰다. 1.2에서 놓친 부분이며
+수정하고 `validate`에 "모든 역할 이름이 블록에 등장하는가" 검사를 추가했다.
+
+### 남은 확인
+
+- [ ] 프로젝트를 trusted로 만든 뒤 `AGENTS:`에 역할 6개가 나오는지
+      (Codex 사용량 한도로 2026-09-21 이후 가능)
+
+### 제품에 미치는 영향
+
+Codex 타깃은 **소비자의 trust 승인에 하드 의존**한다. README에 이미 안내가 있지만,
+`doctor`가 trust 상태를 확인하지 못한다. 설치는 성공했는데 역할이 안 보이는 상황에서
+원인을 짚어주지 못하므로 개선 후보다.

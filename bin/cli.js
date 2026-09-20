@@ -1557,6 +1557,12 @@ function validateAdapter(adapter, manifest) {
     } catch (error) {
       failures.push(`Codex config payload is invalid: ${error.message}`);
     }
+    const guidanceBlock = readText(path.join(CODEX_PAYLOAD_DIR, "AGENTS.block.md"));
+    for (const role of manifest.skills) {
+      if (!guidanceBlock.includes(role.name)) {
+        failures.push(`Codex AGENTS block does not mention role: ${role.name}`);
+      }
+    }
   }
   if (failures.length > 0) {
     return failures;
@@ -1600,6 +1606,10 @@ function validateAdapter(adapter, manifest) {
       }
       if (!/\ndescription = "\S/.test(rendered)) {
         failures.push(`adapter ${adapter.target} render for ${role.name} has an empty TOML description`);
+      }
+      // 이스케이프되지 않은 TOML 여러 줄 구분자가 남으면 파싱이 깨진다.
+      if ((rendered.match(/(?<!\\)"""/g) || []).length !== 2) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has unbalanced TOML multiline delimiters`);
       }
     }
 
