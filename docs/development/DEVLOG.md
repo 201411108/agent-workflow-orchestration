@@ -22,6 +22,51 @@
 
 ---
 
+## 2026-09-20 (11) — Stop Conditions에서 역할 지명 제거 (D16)
+
+- **사용자 지적으로 1.3의 설계 오류를 고쳤다**
+  - 1.3의 Stop Conditions에 `role-planner로 반환한다` 같은 대상을 적었는데,
+    이것은 **역할별 고정 라우팅 표를 계약에 다시 들여온 것**이다.
+    D2(라우팅은 선언에서 계산)에 정면으로 어긋나고, 1.7의 완료 기준
+    "저장소 어디에도 고정 역할 순서 표가 남아있지 않다"를 위배한다
+  - 6개 파일에 하드코딩된 라우팅 8개가 있었다
+
+- **작업**
+  - Stop Conditions를 "누구에게"에서 "무엇이 필요한가"로 전면 재작성
+  - 능력 어휘 8개 고정: `product-intent`, `ui-decision`, `code-evidence`,
+    `external-evidence`, `contract-decision`, `implementation`, `verification`,
+    `acceptance-criteria`
+  - `role-orchestrator`에 `## Handling Returned Needs` 추가. 반환된 `필요한 것`을
+    읽고 배정하는 규칙과 능력 어휘 표를 담았다
+  - `validate`가 Stop Conditions 안의 타 역할 언급을 실패로 처리한다
+
+- **결정**
+  - D16 확정 — 역할은 다음 역할을 지명하지 않는다. 근거 셋:
+    (1) 역할을 추가하면 낡는다. 1.8에서 analyst/qa가 들어오면 계약 7개를 손으로 고쳐야 한다
+    (2) 하나의 필요가 한 역할에 대응한다고 가정한다. 근거 수집은 researcher와 analyst가
+        나눠 맡거나 D3에 따라 병렬로 돌 수 있는데 지명이 그 가능성을 미리 닫는다
+    (3) 판단 위치가 틀렸다. 막힌 역할은 자기에게 무엇이 없는지만 알고,
+        누가 채울 수 있는지는 전체 상태를 보는 오케스트레이터가 안다
+
+- **검증**
+  - `validate` 통과, `npm run check` 전부 통과
+  - **재발 방지 검사가 실제로 잡는지 확인했다 (D12).** reviewer에 `role-planner`를
+    되돌려 넣자 `Stop Conditions names another role (role-planner)`로 실패
+
+- **1.4와 1.7에 반영**
+  - 1.4: 핸드오프에 `needs` 필드 추가. 능력 어휘를 구조로 옮겨 오케스트레이터가
+    자연어 파싱 없이 배정하게 한다
+  - 1.7: `capabilities` 선언이 D16의 능력 어휘와 같은 값을 쓰도록 하고,
+    계약의 `필요한 것`과 어긋나지 않는지 `validate`가 검사한다
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 (사용량 한도, 2026-09-21 13:39 이후)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.4 핸드오프 스키마 고정
+
+---
+
 ## 2026-09-20 (10) — 1.3 Activation / Done / Stop 추가
 
 - **작업**

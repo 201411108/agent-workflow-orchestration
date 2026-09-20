@@ -483,3 +483,45 @@ Claude는 `Bash` 가용 여부로, Codex는 구분 불가로 근사한다. 경�
 `.codex/config.toml`은 계속 병합한다. `features.multi_agent`와 `agents.enabled`의
 기본값이 `true`이지만(1.1 조사), 소비자가 명시적으로 꺼둔 경우를 덮어써야 하므로
 명시 기록이 맞다.
+
+---
+
+## D16. 역할은 다음 역할을 지명하지 않는다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+1.3에서 Stop Conditions에 `role-planner로 반환한다` 같은 대상을 적었다. 이것은
+**역할별 고정 라우팅 표를 계약에 다시 들여온 것**이며 D2에 정면으로 어긋난다.
+D2는 라우팅을 선언에서 계산하고 매 스텝 재계산한다고 정했고, 1.7의 완료 기준은
+"저장소 어디에도 고정 역할 순서 표가 남아있지 않다"이다.
+
+역할은 **막힌 조건과 필요한 능력**만 기술한다. 배정은 오케스트레이터가 한다.
+
+```markdown
+잘못: API 계약 결정이 필요하다. `role-architect`로 반환한다.
+맞음: API 계약 결정이 필요하다. 필요한 것: 구조·계약 결정(`contract-decision`).
+```
+
+지명이 나쁜 이유는 셋이다.
+
+1. **역할을 추가하면 낡는다.** 1.8에서 `role-analyst`와 `role-qa`가 들어오면
+   기존 지명은 최선의 배정이 아니게 되는데, 계약 7개를 손으로 고쳐야 한다.
+2. **하나의 필요가 한 역할에 대응한다고 가정한다.** 근거 수집은 `role-researcher`와
+   `role-analyst`가 나누어 맡을 수 있고, D3에 따라 병렬로 돌 수도 있다.
+   지명은 이 가능성을 미리 닫는다.
+3. **판단 위치가 틀렸다.** 막힌 역할은 자기가 무엇이 없는지만 알고, 누가 그것을
+   채울 수 있는지는 모른다. 전체 상태를 보는 것은 오케스트레이터다.
+
+### 능력 어휘
+
+반환에 쓰는 어휘를 고정한다. `role-orchestrator`의 `## Handling Returned Needs`에
+같은 표가 있으며, 1.7에서 역할의 `capabilities` 선언과 이 어휘를 묶는다.
+
+`product-intent`, `ui-decision`, `code-evidence`, `external-evidence`,
+`contract-decision`, `implementation`, `verification`, `acceptance-criteria`
+
+### 기계적 강제
+
+`validate`가 Stop Conditions 안에서 자기 역할 이외의 `role-*` 언급을 실패로 처리한다.
+고정 라우팅이 계약에 다시 스며드는 것을 사람 검토에 맡기지 않는다.

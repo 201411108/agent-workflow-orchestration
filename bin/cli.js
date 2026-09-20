@@ -1617,6 +1617,20 @@ function validateSkill(skillName, manifestEntry) {
     }
   }
 
+  // D16: 역할은 다음 역할을 지명하지 않는다. 막힌 조건과 필요한 능력만 기술하고
+  // 배정은 오케스트레이터가 한다. 고정 라우팅이 계약에 다시 스며드는 것을 막는다.
+  const stopSection = contents.match(/## Stop Conditions\n[\s\S]*?(?=\n## |$)/);
+  if (stopSection) {
+    const namedRoles = Array.from(new Set(stopSection[0].match(/role-[a-z]+/g) || [])).filter(
+      (name) => name !== skillName
+    );
+    for (const namedRole of namedRoles) {
+      failures.push(
+        `skills/${skillName}/SKILL.md Stop Conditions names another role (${namedRole}); describe the needed capability instead`
+      );
+    }
+  }
+
   if (manifestEntry) {
     if (!["none", "docs-only", "implementation"].includes(manifestEntry.mutationPolicy)) {
       failures.push(`manifest role ${skillName} has invalid mutationPolicy`);

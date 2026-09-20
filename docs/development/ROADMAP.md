@@ -236,6 +236,8 @@ Claude Code 스킬 파일명은 `SKILL.md` 고정이라 **설치되어도 로드
 
 완료 기준:
 - [x] 7개 SKILL.md 전부 세 섹션 보유, `validate` 통과
+- [x] Stop Conditions가 다음 역할을 지명하지 않고 필요한 능력만 기술한다 (D16).
+      `validate`가 타 역할 언급을 실패로 처리한다
 - [x] Done Criteria의 모든 항목이 사람이 참/거짓을 판정할 수 있는 문장이다.
       전수 검토 후 주관적이던 2건(reviewer의 "그대로 실행할 수 있는 형태",
       researcher의 "다시 탐색하지 않고 판단할 수 있는")을 확인 가능한 문장으로 바꿨다
@@ -250,6 +252,8 @@ D5를 구현한다.
 - [ ] `facts_confirmed` 항목에 출처 경로를 필수로 만든다
 - [ ] `out_of_scope`를 필수 필드로 만든다
 - [ ] `blocking_questions` 반환 프로토콜(D4)을 오케스트레이터 계약에 명시한다
+- [ ] 핸드오프에 `needs` 필드를 추가한다. 1.3의 `필요한 것` 어휘를 구조로 옮겨
+      오케스트레이터가 자연어 파싱 없이 배정할 수 있게 한다 (D16)
 
 완료 기준:
 - 역할 하나를 수동 실행했을 때 스키마를 지킨 핸드오프가 나온다
@@ -328,7 +332,11 @@ L3 동작 검증을 만든다. 1.4에서 핸드오프 스키마가 생겨야 판
 D2의 구현. 고정 체인을 폐기하고 라우팅을 선언에서 계산한다.
 **이 작업이 끝나면 1.8의 역할 추가가 거의 공짜가 된다.**
 
-- [ ] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다
+- [ ] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다.
+      `capabilities`는 D16의 능력 어휘와 같은 값을 쓴다
+      (`product-intent`, `ui-decision`, `code-evidence`, `external-evidence`,
+      `contract-decision`, `implementation`, `verification`, `acceptance-criteria`)
+- [ ] `validate`가 계약의 `필요한 것`과 역할 `capabilities` 어휘가 어긋나지 않는지 검사한다
 - [ ] 오케스트레이터 계약을 고정 라우팅 표에서 의존성 해소 절차로 교체한다
 - [ ] D3의 병렬 규칙을 오케스트레이터 계약에 명시한다
 - [ ] D6의 경계 조건을 오케스트레이터 계약에 명시한다
