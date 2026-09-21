@@ -22,6 +22,42 @@
 
 ---
 
+## 2026-09-21 (12) — 1.4 핸드오프 봉투 스키마 고정
+
+- **설계**
+  - 핸드오프를 **봉투(envelope)**로 설계했다. 역할별 산출물(payload)과 분리해서
+    7개 역할이 같은 형식을 쓴다. `handoff_notes`가 4개 역할에만 있어서
+    그 키를 확장하는 방식으로는 전체를 덮을 수 없었다
+  - **`to` 필드를 두지 않기로 했다.** D5 초안에는 `to: role-developer`가 있었는데
+    이는 D16 위반이다. 봉투는 언제나 오케스트레이터로 반환되므로 `to`는 불필요하다
+  - `status: complete | blocked` 추가. `blocking_questions` 또는 `needs`가
+    비어 있지 않으면 `blocked`
+
+- **작업**
+  - 7개 SKILL.md에 `## Handoff Contract` 추가
+  - `templates/handoff-template.md`를 봉투 구조로 교체 (work-item 치환자 유지)
+  - `validate`가 봉투 9개 필드와 `from`이 자기 역할인지 검사
+  - D5를 확정 스키마로 갱신
+
+- **검증 — 실제 역할을 돌려서 확인했다**
+  - 임시 프로젝트에 설치하고 `role-planner` 서브에이전트를 실제 실행해 봉투를 받았다
+  - 기계 판정 결과: 필수 9개 필드 전부 존재 / `facts_confirmed` 6개 모두 출처 보유 /
+    `assumptions` 8개 모두 출처 없음(정상) / risk 8/8 표기 /
+    `status: blocked`와 `blocking_questions` 존재가 일관 / `out_of_scope` 5개 /
+    타 역할 지명 없음(D16 준수)
+  - **이 판정 스크립트가 1.6 하네스의 프로토타입이다.** 계약 준수를 기계로 판정할 수
+    있다는 D12의 전제가 실물로 확인됐다
+  - 검사 3종이 실패를 잡는 것을 먼저 확인했다 (D12): 봉투 필드 제거,
+    `from`을 다른 역할로 변경, 템플릿에서 `needs` 제거
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 (사용량 한도 해제 후)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.5 역할별 스킬·도구 바인딩
+
+---
+
 ## 2026-09-20 (11) — Stop Conditions에서 역할 지명 제거 (D16)
 
 - **사용자 지적으로 1.3의 설계 오류를 고쳤다**

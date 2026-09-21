@@ -17,6 +17,18 @@ const {
 const ROOT_DIR = path.join(__dirname, "..");
 const SOURCE_DIR = path.join(ROOT_DIR, "skills");
 const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
+// 모든 역할이 같은 형식으로 반환하는 핸드오프 봉투의 필수 필드.
+// 1.6 검증 하네스가 이 필드들로 계약 준수를 기계 판정한다.
+const HANDOFF_ENVELOPE_FIELDS = [
+  "from:",
+  "status:",
+  "produced:",
+  "facts_confirmed:",
+  "assumptions:",
+  "blocking_questions:",
+  "needs:",
+  "out_of_scope:",
+];
 const ADAPTERS_DIR = path.join(ROOT_DIR, "adapters");
 const CODEX_PAYLOAD_DIR = path.join(ROOT_DIR, "payloads", "codex");
 const KNOWN_CODEX_V1_LEGACY_HASHES = {
@@ -1609,12 +1621,18 @@ function validateSkill(skillName, manifestEntry) {
     "## Activation",
     "## Done Criteria",
     "## Stop Conditions",
+    "## Handoff Contract",
+    ...HANDOFF_ENVELOPE_FIELDS,
   ];
 
   for (const token of requiredTokens) {
     if (!contents.includes(token)) {
       failures.push(`skills/${skillName}/SKILL.md missing token: ${token}`);
     }
+  }
+
+  if (!contents.includes(`from: ${skillName}`)) {
+    failures.push(`skills/${skillName}/SKILL.md handoff envelope must declare from: ${skillName}`);
   }
 
   // D16: 역할은 다음 역할을 지명하지 않는다. 막힌 조건과 필요한 능력만 기술하고
@@ -1813,6 +1831,16 @@ function validate() {
   ]) {
     if (!fs.existsSync(path.join(TEMPLATES_DIR, templateName))) {
       failures.push(`missing template: templates/${templateName}`);
+    }
+  }
+
+  const handoffTemplatePath = path.join(TEMPLATES_DIR, "handoff-template.md");
+  if (fs.existsSync(handoffTemplatePath)) {
+    const handoffTemplate = readText(handoffTemplatePath);
+    for (const field of HANDOFF_ENVELOPE_FIELDS) {
+      if (!handoffTemplate.includes(field)) {
+        failures.push(`templates/handoff-template.md is missing envelope field: ${field}`);
+      }
     }
   }
 

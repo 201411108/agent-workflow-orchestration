@@ -67,6 +67,38 @@ fallbacks:
 3. 확인된 사실, 출처가 있는 외부 사실, 추론을 명확히 분리한다.
 4. 다음 역할이 재탐색 없이 판단할 수 있도록 경로와 미확인 지점을 압축한다.
 
+## Handoff Contract
+
+역할별 산출물과 별개로, 모든 역할은 아래 봉투를 마지막에 하나 붙여 오케스트레이터에
+반환한다. 형식은 7개 역할이 동일하다.
+
+```yaml
+from: role-researcher
+work_id: <work-id 또는 none>
+status: complete | blocked
+produced: [이 실행에서 실제로 만든 산출물 키]
+facts_confirmed:
+  - claim: 확인된 사실
+    source: path/to/file.ts:42
+assumptions:
+  - claim: 검증되지 않은 전제
+    risk: high | medium | low
+blocking_questions: []
+needs: []
+out_of_scope: [이번 실행에서 건드리지 않은 영역]
+```
+
+규칙:
+
+- `source` 없는 주장은 `facts_confirmed`에 넣지 않는다. `assumptions`로 보낸다.
+  출처는 파일 경로나 URL이어야 하며 "코드에서 확인함" 같은 서술은 출처가 아니다.
+- `out_of_scope`는 비울 수 있으나 생략할 수 없다. 자율 실행의 최대 실패 모드는
+  멈춤이 아니라 범위가 조금씩 넓어지는 것이다.
+- `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.
+- `needs`가 비어 있지 않으면 `status: blocked`이며 오케스트레이터가 배정한다.
+  어휘는 `## Stop Conditions`에서 쓰는 것과 같다.
+- 다음 역할을 지명하지 않는다. 배정은 오케스트레이터의 책임이다.
+
 ## Done Criteria
 
 아래가 전부 참이면 종료한다.

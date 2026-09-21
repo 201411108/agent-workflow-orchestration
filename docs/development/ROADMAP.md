@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.3 완료, 1.4 미착수**
-- 다음 작업: **1.4 핸드오프 스키마 고정**
+- 진행 단계: **Phase 1 — 1.4 완료, 1.5 미착수**
+- 다음 작업: **1.5 역할별 스킬·도구 바인딩**
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -247,17 +247,23 @@ Claude Code 스킬 파일명은 `SKILL.md` 고정이라 **설치되어도 로드
 
 D5를 구현한다.
 
-- [ ] `templates/handoff-template.md`를 frontmatter + 본문 구조로 교체한다
-- [ ] 7개 SKILL.md의 `handoff_notes` 출력 형식을 새 스키마로 통일한다
-- [ ] `facts_confirmed` 항목에 출처 경로를 필수로 만든다
-- [ ] `out_of_scope`를 필수 필드로 만든다
-- [ ] `blocking_questions` 반환 프로토콜(D4)을 오케스트레이터 계약에 명시한다
-- [ ] 핸드오프에 `needs` 필드를 추가한다. 1.3의 `필요한 것` 어휘를 구조로 옮겨
-      오케스트레이터가 자연어 파싱 없이 배정할 수 있게 한다 (D16)
+- [x] `templates/handoff-template.md`를 봉투 구조로 교체한다
+- [x] 7개 SKILL.md 전부에 `## Handoff Contract` 봉투를 추가한다.
+      역할별 산출물(payload)과 분리된 공통 봉투(envelope)로 설계했다
+- [x] `facts_confirmed` 항목에 출처를 필수로 만든다
+- [x] `out_of_scope`를 필수 필드로 만든다
+- [x] `blocking_questions` 반환 프로토콜(D4)을 봉투와 오케스트레이터 계약에 명시한다
+- [x] 핸드오프에 `needs` 필드를 추가한다 (D16)
+- [x] `to` 필드를 두지 않는다. 역할이 다음 역할을 지명하는 것은 D16 위반이다
+- [x] `validate`가 봉투 9개 필드와 `from`이 자기 역할인지를 검사한다
 
 완료 기준:
-- 역할 하나를 수동 실행했을 때 스키마를 지킨 핸드오프가 나온다
-- 출처 없는 주장이 `facts_confirmed`가 아니라 `assumptions`로 간다
+- [x] 역할 하나를 수동 실행했을 때 스키마를 지킨 핸드오프가 나온다.
+      `role-planner` 서브에이전트를 실제 실행해 봉투를 받고 기계 판정으로 검증했다
+- [x] 출처 없는 주장이 `facts_confirmed`가 아니라 `assumptions`로 간다.
+      실행 결과: facts 6개 전부 출처 보유, assumptions 8개 전부 출처 없음, risk 8/8 표기
+- [x] `status`와 `blocking_questions`의 일관성이 유지된다 (실행 결과 `blocked` 일치)
+- [x] 실행 결과가 다음 역할을 지명하지 않는다 (D16 준수 확인)
 
 ### 1.5 역할별 스킬·도구 바인딩
 

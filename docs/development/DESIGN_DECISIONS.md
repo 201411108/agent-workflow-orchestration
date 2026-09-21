@@ -119,41 +119,51 @@ B → (blocking_question) → 디스패처 → A → (답) → 디스패처 → 
 
 ---
 
-## D5. 핸드오프는 frontmatter와 본문의 하이브리드로 고정한다
+## D5. 핸드오프는 모든 역할이 공유하는 봉투로 고정한다
 
 - 상태: 확정
-- 결정일: 2026-09-20
+- 결정일: 2026-09-20 (1.4에서 스키마 확정, 2026-09-21)
 
 자연어 마크다운 핸드오프는 다음 역할이 매번 재해석해야 하고, "사실과 가정을 구분하라"
 같은 지시가 문장으로만 존재해 강제되지 않는다. 반대로 완전 JSON은 LLM 산출 품질을
-떨어뜨린다. 기계가 읽을 부분은 frontmatter로, 판단이 필요한 부분은 본문으로 나눈다.
+떨어뜨린다. 역할별 산출물(payload)과 분리된 **봉투(envelope)**를 두고, 봉투만 형식을
+고정한다.
 
-```markdown
----
+1.1 조사에서 확인했듯 구조화된 컨텍스트를 넘기는 네이티브 경로가 없으므로
+(판정: 보완) 봉투는 task message에 실린다.
+
+```yaml
 from: role-planner
-to: role-developer
-work_id: user-onboarding
+work_id: <work-id 또는 none>
+status: complete | blocked
 produced: [articulate_doc]
 facts_confirmed:
-  - { claim: "...", source: "path/to/file.ts:42" }
+  - claim: 확인된 사실
+    source: path/to/file.ts:42
 assumptions:
-  - { claim: "...", risk: high }
+  - claim: 검증되지 않은 전제
+    risk: high | medium | low
 blocking_questions: []
-out_of_scope: ["결제 흐름", "기존 세션 로직"]
----
-
-## 결정 사항
-## 다음 역할이 확인할 것
+needs: []
+out_of_scope: [이번 실행에서 건드리지 않은 영역]
 ```
 
-강제되는 세 가지:
+강제되는 다섯 가지:
 
-- `facts_confirmed`는 출처 경로가 필수다. 출처 없는 항목은 `assumptions`로 간다.
-- `blocking_questions`가 비어 있지 않으면 디스패처가 루프를 멈춘다.
-- `out_of_scope`는 필수 필드다. 자율 에이전트의 최대 실패 모드는 멈춤이 아니라
-  범위 확장이며, 매 핸드오프에서 범위 밖을 명시해야 누적 확장을 막는다.
+- `facts_confirmed`는 출처가 필수다. 출처 없는 주장은 `assumptions`로 간다.
+  "코드에서 확인함" 같은 서술은 출처가 아니다.
+- `out_of_scope`는 비울 수 있으나 **생략할 수 없다.** 자율 에이전트의 최대 실패 모드는
+  멈춤이 아니라 범위가 조금씩 넓어지는 것이며, 매 핸드오프에서 범위 밖을 명시해야
+  누적 확장을 막는다.
+- `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.
+- `needs`가 비어 있지 않으면 `status: blocked`이며 오케스트레이터가 배정한다.
+  어휘는 D16과 같다.
+- **`to` 필드는 두지 않는다.** 역할이 다음 역할을 지명하는 것은 D16 위반이다.
+  봉투는 언제나 오케스트레이터로 반환되며 배정은 오케스트레이터가 한다.
 
----
+봉투는 7개 역할이 동일하며 `## Handoff Contract` 절에 있다. `validate`가 모든 역할의
+봉투 필드 존재와 `from`이 자기 역할인지를 검사한다. 이 필드들이 1.6 검증 하네스의
+기계 판정 기준이 된다.
 
 ## D6. 경계 조건을 디스패처에 내장한다
 
