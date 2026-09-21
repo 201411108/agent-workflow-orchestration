@@ -126,6 +126,15 @@ function smokeCodex(rootDir) {
     "utf8"
   );
   assertIncludes(researcherAgent, 'sandbox_mode = "read-only"');
+  // 1.5 도구 바인딩: Codex는 역할별 허용 목록이 없고 web_search만 제어 가능하다.
+  assertIncludes(researcherAgent, "web_search = true");
+  const reviewerAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-reviewer.toml"),
+    "utf8"
+  );
+  assertIncludes(reviewerAgent, "web_search = false");
+  assertIncludes(researcherAgent, "## Tools");
+  assertNotIncludes(researcherAgent, "사용 가능:");
   const config = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
   assertIncludes(config, "# keep this comment");
   assertIncludes(config, 'model = "consumer-model"');
@@ -210,6 +219,7 @@ const codexDottedFixture = makeFixture();
 const codexOwnedFileConflictFixture = makeFixture();
 const claudeLegacyFixture = makeFixture();
 const cursorLegacyKeyFixture = makeFixture();
+const toolBindingFixture = makeFixture();
 
 try {
   smokeTarget(
@@ -225,6 +235,25 @@ try {
     [".claude", "skills", "role-orchestrator", "SKILL.md"],
     [".claude", "agents", "role-reviewer.md"]
   );
+
+  // 1.5 도구 바인딩: 서브에이전트 tools 허용 목록이 역할 선언에서 도출되어야 한다.
+  run(["install", "--target", "claude"], toolBindingFixture);
+  const researcherAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-researcher.md"),
+    "utf8"
+  );
+  assertIncludes(researcherAgentFile, "tools: Read, Glob, Grep, WebSearch, WebFetch");
+  const developerAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-developer.md"),
+    "utf8"
+  );
+  // 쓰기 도구는 file_edit를 선언한 역할에만 붙는다.
+  assertIncludes(developerAgentFile, "Write, Edit");
+  assertNotIncludes(researcherAgentFile, "Write, Edit");
+  // 도구 가용성은 표로 알려주고 조건문을 남기지 않는다.
+  assertIncludes(researcherAgentFile, "## Tools");
+  assertNotIncludes(researcherAgentFile, "사용 가능:");
+  assertNotIncludes(developerAgentFile, "사용 불가");
 
   run(["install", "--target", "cursor"], multiTargetFixture);
   run(["init"], multiTargetFixture);
@@ -698,4 +727,5 @@ try {
   cleanup(codexOwnedFileConflictFixture);
   cleanup(claudeLegacyFixture);
   cleanup(cursorLegacyKeyFixture);
+  cleanup(toolBindingFixture);
 }

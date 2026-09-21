@@ -22,9 +22,8 @@ mutation_policy: none
 optional_tools:
   - glob_search
   - text_search
-  - test_runner
 fallbacks:
-  - 테스트 실행이 불가능하면 검증 공백을 finding으로 보고하고 통과로 추정하지 않는다.
+  - 검증을 직접 실행하지 않는다. 제공된 verification 결과를 읽고, 공백이 있으면 finding으로 보고하며 통과로 추정하지 않는다.
 ---
 
 # Role: Reviewer

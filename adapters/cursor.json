@@ -19,5 +19,6 @@
     "none": {},
     "docs-only": {},
     "implementation": {}
-  }
+  },
+  "toolBindingNote": "Cursor는 1.1 하네스 조사 범위 밖이다. 도구 바인딩 수단을 확인하기 전까지 매핑을 추측으로 채우지 않고 원문 패스스루를 유지한다 (D15)."
 }

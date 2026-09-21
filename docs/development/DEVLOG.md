@@ -22,6 +22,61 @@
 
 ---
 
+## 2026-09-21 (13) — 1.5 역할별 스킬·도구 바인딩
+
+- **작업**
+  - manifest 최상위 키를 `skills` → `roles`로 변경. `loadManifest`가 구 키도 읽는다
+  - 역할마다 `skills: []`(D14)와 `toolPolicy: deny-by-default` 추가
+  - `adapters/*.json`에 추상 도구 → 네이티브 도구 매핑 추가
+  - 렌더러가 매핑을 해석해 claude `tools:` frontmatter와 codex `web_search` 키를 생성
+  - 렌더러가 `## Tools` 표를 본문에 주입. 도구 가용성을 사실로 알려준다
+  - 7개 계약에서 "사용 가능:/사용 불가" 조건문 제거
+  - `docs-only`인데 `file_edit`를 선언하지 않던 planner/designer를 고쳤다
+
+- **작업 중 발견한 결함 (수정함)**
+  - ⚠️ **`role-reviewer`가 `mutationPolicy: none`인데 읽기 전용이 아니었다.**
+    `test_runner`를 선언해 `Bash`를 받고 있었고, Bash 한 줄이면 무엇이든 쓸 수 있다.
+    `none`의 보장이 무의미했다
+  - 해결: reviewer는 검증을 직접 실행하지 않는다. 제공된 `verification`을 읽고
+    공백을 finding으로 보고하며 필요하면 `needs: verification`으로 반환한다.
+    게이트 제작은 `role-qa`의 책임이다 (D7)
+  - 어댑터에 `writeCapableTools`를 선언하고 `validate`가 기계 검사한다
+
+- **자초한 버그 하나**
+  - `manifest.skills` → `manifest.roles` 전역 치환이 **방금 작성한 하위 호환 폴백을
+    같이 덮어썼다.** `manifest.roles : manifest.roles`가 되어 구 키 지원이 죽었다.
+    구 키로 실제 설치를 돌려보다가 발견했다. 문자열 치환 후에는 방금 쓴 코드도
+    다시 읽어야 한다
+
+- **결정**
+  - D17 확정 — 도구 허용 목록을 역할 선언에서 도출한다. 고정 목록은 같은 정책의
+    역할에 가장 넓은 권한을 준다. `role-architect`와 `role-researcher`는 둘 다
+    `none`이지만 후자만 웹 검색이 필요하다
+  - `skills` 매핑은 추가하지 않았다. 모든 역할의 `skills`가 빈 배열이므로 D14의
+    "선험적 설계 금지"에 따라 실제 선언이 생길 때 만든다
+
+- **타깃별 한계 (정직하게 기록)**
+  - claude: `tools` 허용 목록으로 deny-by-default 강제됨
+  - codex: **역할별 허용 목록이 없다.** `sandbox_mode`와 `web_search`만 제어 가능.
+    deny-by-default는 계약 문구로만 존재하며 위반은 1.6 하네스가 사후 탐지한다
+  - cursor: 1.1 조사 범위 밖이라 매핑을 추측으로 채우지 않았다
+
+- **검증**
+  - `validate` 검사 6종이 실패를 잡는 것을 각각 확인 (D12): 매핑 누락 / 매핑·주석
+    모두 없음 / `none` 역할의 `file_edit` / `toolPolicy` 누락 / 조건문 재유입 /
+    `none` 역할의 쓰기 가능 도구
+  - 스모크에 도구 바인딩 고정. 매핑을 지우면 실패하는 것을 확인
+  - 구 `skills` 키 manifest로 설치해 동일 결과가 나오는 것을 실측
+
+- **미해결**
+  - Codex custom agent 노출 최종 확인 (사용량 한도 해제 후)
+  - Phase 2 미니 프로젝트 대상 미정 (이월)
+
+- **다음**: ROADMAP 1.6 동작 검증 하네스. 1.4의 봉투 판정 스크립트가 프로토타입이고,
+  1.5에서 생긴 "선언되지 않은 도구 사용" 탐지도 여기서 구현한다
+
+---
+
 ## 2026-09-21 (12) — 1.4 핸드오프 봉투 스키마 고정
 
 - **설계**

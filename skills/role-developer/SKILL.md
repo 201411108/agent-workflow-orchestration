@@ -154,9 +154,11 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 
 ## Tool Guidance
 
-- `text_search` 사용 가능: 유사 구현, 재사용 가능한 유틸리티, 프로젝트 명령을 찾는다.
-- `lint_runner` 또는 `test_runner` 없음: 패키지 스크립트나 문서화된 명령을 직접 탐색한다.
-- `task_subagent`는 큰 변경에서만 사용하고, 즉시 필요한 탐색은 직접 수행한다.
+`## Tools` 표에 있는 도구만 사용한다. 각 도구를 쓸 때의 지침은 아래와 같다.
+
+- `text_search`: 유사 구현, 재사용 가능한 유틸리티, 프로젝트 명령을 찾는다.
+- `lint_runner`, `test_runner`: 실제로 실행한 명령과 결과만 `verification`에 기록한다.
+- `task_subagent`: 큰 변경에서만 쓰고, 즉시 필요한 탐색은 직접 수행한다.
 
 ## Fallback Rules
 

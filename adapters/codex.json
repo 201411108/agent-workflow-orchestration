@@ -23,14 +23,46 @@
     "specsDir": ".agent-workflow/specs"
   },
   "permissions": {
-    "none": { "sandbox_mode": "read-only" },
-    "docs-only": { "sandbox_mode": "workspace-write" },
-    "implementation": { "sandbox_mode": "workspace-write" }
+    "none": {
+      "sandbox_mode": "read-only"
+    },
+    "docs-only": {
+      "sandbox_mode": "workspace-write"
+    },
+    "implementation": {
+      "sandbox_mode": "workspace-write"
+    }
   },
   "legacyRolePaths": [
-    { "dir": ".agents/skills", "pattern": "feature-orchestrator/SKILL.md" },
-    { "dir": ".codex/agents", "pattern": "planner.toml" },
-    { "dir": ".codex/agents", "pattern": "designer.toml" },
-    { "dir": ".codex/agents", "pattern": "developer.toml" }
-  ]
+    {
+      "dir": ".agents/skills",
+      "pattern": "feature-orchestrator/SKILL.md"
+    },
+    {
+      "dir": ".codex/agents",
+      "pattern": "planner.toml"
+    },
+    {
+      "dir": ".codex/agents",
+      "pattern": "designer.toml"
+    },
+    {
+      "dir": ".codex/agents",
+      "pattern": "developer.toml"
+    }
+  ],
+  "tools": {
+    "file_read": null,
+    "file_edit": null,
+    "glob_search": null,
+    "text_search": null,
+    "web_search": "web_search",
+    "browser": null,
+    "lint_runner": null,
+    "test_runner": null,
+    "task_subagent": null,
+    "structured_question": null
+  },
+  "toolBindingNote": "Codex는 역할별 도구 허용 목록을 지원하지 않는다. 쓰기 권한은 sandbox_mode로, 웹 검색은 web_search 키로만 제어한다 (HARNESS_CAPABILITIES 2절).",
+  "writeCapableTools": []
 }

@@ -17,11 +17,33 @@
     "specsDir": ".agent-workflow/specs"
   },
   "permissions": {
-    "none": { "tools": "Read, Glob, Grep, WebSearch, WebFetch" },
-    "docs-only": { "tools": "Read, Glob, Grep, Write, Edit" },
+    "none": {},
+    "docs-only": {},
     "implementation": {}
   },
   "legacyRolePaths": [
-    { "dir": ".claude/skills", "pattern": "{role}/CLAUDE.md" }
+    {
+      "dir": ".claude/skills",
+      "pattern": "{role}/CLAUDE.md"
+    }
+  ],
+  "tools": {
+    "file_read": "Read",
+    "file_edit": "Write, Edit",
+    "glob_search": "Glob",
+    "text_search": "Grep",
+    "web_search": "WebSearch, WebFetch",
+    "browser": null,
+    "lint_runner": "Bash",
+    "test_runner": "Bash",
+    "task_subagent": "Agent",
+    "structured_question": "AskUserQuestion"
+  },
+  "toolBindingNote": "서브에이전트 frontmatter의 tools 허용 목록으로 렌더링한다. browser는 네이티브 대응이 없다.",
+  "writeCapableTools": [
+    "Write",
+    "Edit",
+    "Bash",
+    "NotebookEdit"
   ]
 }

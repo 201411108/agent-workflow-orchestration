@@ -535,3 +535,66 @@ D2는 라우팅을 선언에서 계산하고 매 스텝 재계산한다고 정�
 
 `validate`가 Stop Conditions 안에서 자기 역할 이외의 `role-*` 언급을 실패로 처리한다.
 고정 라우팅이 계약에 다시 스며드는 것을 사람 검토에 맡기지 않는다.
+
+---
+
+## D17. 도구 허용 목록은 역할 선언에서 도출한다
+
+- 상태: 확정
+- 결정일: 2026-09-21
+
+1.2에서는 어댑터의 `permissions`가 `mutationPolicy`별로 고정된 도구 문자열을 갖고
+있었다. 1.5에서 이것을 버리고 **역할이 선언한 도구에서 도출**한다.
+`toolPolicy: deny-by-default`의 의미가 여기서 실제로 강제된다.
+
+```
+tools = resolve(requiredTools ∪ optionalTools)
+```
+
+고정 목록이 나쁜 이유는 같은 정책의 역할이 서로 다른 도구를 필요로 하기 때문이다.
+`role-architect`와 `role-researcher`는 둘 다 `none`이지만 후자만 웹 검색이 필요하다.
+고정 목록은 둘 다에게 가장 넓은 권한을 준다.
+
+도출 결과:
+
+| 역할 | mutationPolicy | claude `tools` |
+|---|---|---|
+| role-researcher | none | Read, Glob, Grep, WebSearch, WebFetch |
+| role-architect | none | Read, Glob, Grep |
+| role-reviewer | none | Read, Glob, Grep |
+| role-planner | docs-only | Read, Write, Edit, WebSearch, WebFetch, Glob, AskUserQuestion |
+| role-designer | docs-only | Read, Write, Edit, Grep |
+| role-developer | implementation | Read, Write, Edit, Grep, Bash, Agent |
+
+### 읽기 전용 보장
+
+`mutationPolicy: none`은 저장소를 바꿀 수 없다는 **보장**이다. 쓰기 가능한 네이티브
+도구가 하나라도 붙으면 그 보장이 깨진다. `Bash` 한 줄이면 무엇이든 쓸 수 있다.
+
+1.5 작업 중 실제로 이 결함을 발견했다. `role-reviewer`가 `none`인데
+`test_runner`를 선언해 `Bash`를 받고 있었다. 읽기 전용이 아니었다.
+
+해결: reviewer는 검증을 직접 실행하지 않는다. 제공된 `verification` 결과를 읽고
+공백을 finding으로 보고하며, 필요하면 `needs: verification`으로 반환한다.
+게이트를 만드는 것은 `role-qa`의 책임이다 (D7).
+
+어댑터가 `writeCapableTools`를 선언하고, `validate`가 `none` 역할에 그 도구가
+도출되면 실패시킨다. 사람 검토에 맡기지 않는다.
+
+### 타깃별 한계
+
+| 타깃 | deny-by-default 강제 |
+|---|---|
+| claude | ✅ 서브에이전트 `tools` 허용 목록 |
+| codex | ❌ 역할별 허용 목록이 없다. `sandbox_mode`와 `web_search`만 제어 가능 |
+| cursor | 미확인. 1.1 조사 범위 밖이라 매핑을 추측으로 채우지 않았다 |
+
+Codex에서 `deny-by-default`는 계약 문구로만 존재한다. 위반은 1.6 하네스가
+사후 탐지한다. 어댑터에 `toolBindingNote`로 이 사실을 남겼다.
+
+### 조건문 제거
+
+도구 가용성은 렌더링된 `## Tools` 표가 사실로 알려준다. 역할 계약에서
+"`web_search` 사용 가능: ..." 같은 조건문을 제거했다. 에이전트가 자기 도구
+가용성을 추론할 필요가 없어야 한다. `validate`가 렌더링 결과에 조건문이
+남아 있으면 실패시킨다.

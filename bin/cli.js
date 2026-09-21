@@ -123,7 +123,14 @@ function writeJson(filePath, value) {
 }
 
 function loadManifest() {
-  return readJson(MANIFEST_PATH);
+  const manifest = readJson(MANIFEST_PATH);
+  // 1.5에서 최상위 키를 skills -> roles로 바꿨다. 구 키를 가진 파일도 읽는다.
+  const legacyRoles = manifest["skills"];
+  const roles = Array.isArray(manifest.roles) ? manifest.roles : legacyRoles;
+  manifest.roles = Array.isArray(roles) ? roles : [];
+  // 외부 소비자를 위한 별칭. 이 파일의 코드는 roles만 쓴다.
+  manifest["skills"] = manifest.roles;
+  return manifest;
 }
 
 function loadAdapter(targetName) {
@@ -404,6 +411,55 @@ function readFrontmatterField(frontmatter, field) {
   return collected.join(" ");
 }
 
+// 역할이 선언한 추상 도구를 타깃의 실제 도구로 해석한다.
+// 매핑이 없는 도구는 unavailable로 분리해 조건문 대신 사실로 렌더링한다.
+function resolveRoleTools(adapter, role) {
+  const declared = [...(role.requiredTools || []), ...(role.optionalTools || [])];
+  if (!adapter.tools) {
+    return { supported: false, granted: [], unavailable: [], declared };
+  }
+  const granted = [];
+  const unavailable = [];
+  for (const abstractName of declared) {
+    const native = adapter.tools[abstractName];
+    if (!native) {
+      unavailable.push(abstractName);
+      continue;
+    }
+    for (const piece of String(native).split(",").map((part) => part.trim()).filter(Boolean)) {
+      if (!granted.includes(piece)) {
+        granted.push(piece);
+      }
+    }
+  }
+  return { supported: true, granted, unavailable, declared };
+}
+
+function renderToolsSection(adapter, role) {
+  const resolved = resolveRoleTools(adapter, role);
+  if (!resolved.supported) {
+    return [];
+  }
+  const required = new Set(role.requiredTools || []);
+  const rows = resolved.declared.map((abstractName) => {
+    const native = adapter.tools[abstractName];
+    return `| \`${abstractName}\` | ${native || "없음"} | ${
+      required.has(abstractName) ? "필수" : "선택"
+    } |`;
+  });
+  return [
+    "## Tools",
+    "",
+    `도구 정책: \`${role.toolPolicy || "deny-by-default"}\`. 아래 표에 없는 도구는 쓰지 않는다.`,
+    "매핑이 \"없음\"인 항목은 이 타깃에 대응 수단이 없다는 뜻이며, `## Fallback Rules`를 따른다.",
+    "",
+    "| 계약상 도구 | 이 타깃의 도구 | 구분 |",
+    "|-------------|----------------|------|",
+    ...rows,
+    "",
+  ];
+}
+
 function getRolePermissions(adapter, mutationPolicy) {
   const table = adapter.permissions || {};
   return table[mutationPolicy] || {};
@@ -437,7 +493,7 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   }
 
   const manifest = loadManifest();
-  const role = manifest.skills.find((entry) => entry.name === skillName);
+  const role = manifest.roles.find((entry) => entry.name === skillName);
   if (!role) {
     throw new Error(`role not found in manifest: ${skillName}`);
   }
@@ -446,7 +502,7 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
 
   if (format === "toml") {
     const instructions = replaceSpecsRoot(
-      [...renderContractSummary(role), parsed.body].join("\n")
+      [...renderContractSummary(role), ...renderToolsSection(adapter, role), parsed.body].join("\n")
     ).split('"""').join('\\"\\"\\"');
     const lines = [
       `name = "${escapeTomlBasic(role.name)}"`,
@@ -454,6 +510,11 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
     ];
     for (const key of Object.keys(permissions)) {
       lines.push(`${key} = "${escapeTomlBasic(permissions[key])}"`);
+    }
+    // Codex는 역할별 도구 허용 목록이 없다. 제어 가능한 것은 web_search 뿐이다.
+    const codexTools = resolveRoleTools(adapter, role);
+    if (codexTools.supported) {
+      lines.push(`web_search = ${codexTools.granted.includes("web_search")}`);
     }
     lines.push('developer_instructions = """', instructions, '"""', "");
     return lines.join("\n");
@@ -463,6 +524,11 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   const frontmatterLines = [`name: ${role.name}`, `description: ${description}`];
   for (const key of Object.keys(permissions)) {
     frontmatterLines.push(`${key}: ${permissions[key]}`);
+  }
+  // toolPolicy: deny-by-default. 허용 목록은 역할 선언에서 도출한다.
+  const resolvedTools = resolveRoleTools(adapter, role);
+  if (resolvedTools.supported && resolvedTools.granted.length > 0) {
+    frontmatterLines.push(`tools: ${resolvedTools.granted.join(", ")}`);
   }
   return replaceSpecsRoot(
     [
@@ -475,6 +541,7 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
       `Source: skills/${skillName}/SKILL.md`,
       "",
       ...renderContractSummary(role),
+      ...renderToolsSection(adapter, role),
       parsed.body,
     ].join("\n")
   );
@@ -486,7 +553,7 @@ function renderLegacyCodexRoleFile(skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
   const specsRoot = workflow.specsRoot.split(path.sep).join("/");
-  const role = loadManifest().skills.find((entry) => entry.name === skillName);
+  const role = loadManifest().roles.find((entry) => entry.name === skillName);
   const title = role ? role.name : skillName;
   return [
     `# Codex Role Contract: ${title}`,
@@ -517,7 +584,7 @@ function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
   const specsRoot = workflow.specsRoot.split(path.sep).join("/");
-  const role = loadManifest().skills.find((entry) => entry.name === skillName);
+  const role = loadManifest().roles.find((entry) => entry.name === skillName);
   const description = readFrontmatterField(parsed.frontmatter, "description");
   return [
     "---",
@@ -539,7 +606,7 @@ function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
 
 function getOrchestratorRoleName() {
   const manifest = loadManifest();
-  const found = manifest.skills.find((entry) => entry.name.endsWith("orchestrator"));
+  const found = manifest.roles.find((entry) => entry.name.endsWith("orchestrator"));
   return found ? found.name : null;
 }
 
@@ -550,7 +617,7 @@ function getManagedRoleFiles(adapter, projectRoot = cwd) {
   const rolePattern = adapter.roleFilePattern || `{role}/${adapter.fileName}`;
   const skillPattern = adapter.skillFilePattern || `{role}/SKILL.md`;
 
-  return loadManifest().skills.map((role) => {
+  return loadManifest().roles.map((role) => {
     const isOrchestratorSkill = adapter.orchestratorAs === "skill" && role.name === orchestrator;
     const baseDir = isOrchestratorSkill ? paths.skillsDir : paths.rolesDir;
     const pattern = isOrchestratorSkill ? skillPattern : rolePattern;
@@ -789,7 +856,7 @@ function getLegacyRolePlan(adapter, targetState, projectRoot = cwd) {
   }
   const scopeRoot = global ? os.homedir() : projectRoot;
   const recordedFiles = (targetState && targetState.files) || {};
-  const roleNames = loadManifest().skills.map((role) => role.name);
+  const roleNames = loadManifest().roles.map((role) => role.name);
 
   for (const entry of entries) {
     const patterns = entry.pattern.includes("{role}")
@@ -833,7 +900,7 @@ function getLegacyCodexPlan(targetState, projectRoot = cwd) {
   const recordedFiles = (targetState && targetState.files) || {};
   const removable = [];
   const conflicts = [];
-  for (const role of loadManifest().skills) {
+  for (const role of loadManifest().roles) {
     const relativePath = path.join(role.name, "AGENT.md");
     const filePath = path.join(legacySkillsDir, relativePath);
     if (!fs.existsSync(filePath)) {
@@ -1446,7 +1513,7 @@ function normalizeNextRole(value, fallback) {
   if (value === "none") {
     return null;
   }
-  if (!loadManifest().skills.some((entry) => entry.name === value)) {
+  if (!loadManifest().roles.some((entry) => entry.name === value)) {
     fail(`Unknown next role: ${value}`);
   }
   return value;
@@ -1539,7 +1606,7 @@ function advance() {
     console.error(`  Invalid --status. Supported statuses: ${WORK_STATUSES.join(", ")}`);
     process.exit(1);
   }
-  if (selectedRole && !loadManifest().skills.some((entry) => entry.name === selectedRole)) {
+  if (selectedRole && !loadManifest().roles.some((entry) => entry.name === selectedRole)) {
     console.error(`  Unknown role: ${selectedRole}`);
     process.exit(1);
   }
@@ -1686,6 +1753,44 @@ function validateAdapter(adapter, manifest) {
       failures.push(`adapter ${adapter.target} has no permission mapping for ${policy}`);
     }
   }
+
+  // 도구 바인딩: 매핑을 선언했으면 manifest의 모든 추상 도구가 키로 있어야 한다.
+  // 매핑하지 않기로 했다면 그 사실과 이유를 남긴다. 조용한 누락을 허용하지 않는다.
+  const declaredTools = new Set();
+  for (const role of manifest.roles) {
+    for (const toolName of [...(role.requiredTools || []), ...(role.optionalTools || [])]) {
+      declaredTools.add(toolName);
+    }
+  }
+  if (adapter.tools) {
+    for (const toolName of declaredTools) {
+      if (!Object.prototype.hasOwnProperty.call(adapter.tools, toolName)) {
+        failures.push(`adapter ${adapter.target} has no tool mapping entry for ${toolName}`);
+      }
+    }
+    for (const toolName of Object.keys(adapter.tools)) {
+      if (!declaredTools.has(toolName)) {
+        failures.push(`adapter ${adapter.target} maps an unknown tool: ${toolName}`);
+      }
+    }
+  } else if (!adapter.toolBindingNote) {
+    failures.push(`adapter ${adapter.target} declares no tool mapping and no toolBindingNote explaining why`);
+  }
+
+  // mutationPolicy: none은 저장소를 바꿀 수 없다는 보장이다. 쓰기 가능한 네이티브
+  // 도구가 하나라도 붙으면 그 보장이 깨진다. Bash 한 줄이면 무엇이든 쓸 수 있다.
+  if (adapter.tools && Array.isArray(adapter.writeCapableTools)) {
+    for (const role of manifest.roles.filter((entry) => entry.mutationPolicy === "none")) {
+      const resolved = resolveRoleTools(adapter, role);
+      for (const granted of resolved.granted) {
+        if (adapter.writeCapableTools.includes(granted)) {
+          failures.push(
+            `adapter ${adapter.target} grants write-capable tool ${granted} to ${role.name} (mutationPolicy: none)`
+          );
+        }
+      }
+    }
+  }
   if (adapter.target === "codex") {
     for (const field of ["agentsDir", "configFile", "guidanceFile"]) {
       for (const scopeName of ["projectPaths", "globalPaths"]) {
@@ -1700,7 +1805,7 @@ function validateAdapter(adapter, manifest) {
       failures.push(`Codex config payload is invalid: ${error.message}`);
     }
     const guidanceBlock = readText(path.join(CODEX_PAYLOAD_DIR, "AGENTS.block.md"));
-    for (const role of manifest.skills) {
+    for (const role of manifest.roles) {
       if (!guidanceBlock.includes(role.name)) {
         failures.push(`Codex AGENTS block does not mention role: ${role.name}`);
       }
@@ -1710,10 +1815,10 @@ function validateAdapter(adapter, manifest) {
     return failures;
   }
 
-  const orchestrator = manifest.skills.find((entry) => entry.name.endsWith("orchestrator"));
+  const orchestrator = manifest.roles.find((entry) => entry.name.endsWith("orchestrator"));
   const renderedPaths = new Set();
 
-  for (const role of manifest.skills) {
+  for (const role of manifest.roles) {
     const isOrchestratorSkill = adapter.orchestratorAs === "skill" && orchestrator && role.name === orchestrator.name;
     const rendered = isOrchestratorSkill
       ? renderOrchestratorSkillFile(adapter, role.name)
@@ -1755,6 +1860,16 @@ function validateAdapter(adapter, manifest) {
       }
     }
 
+    // 도구 가용성은 ## Tools 표가 사실로 알려준다. 렌더링 결과에 추론을 요구하는
+    // 조건문이 남아 있으면 에이전트가 자기 도구 가용성을 짐작하게 된다.
+    for (const phrase of ["사용 가능:", "사용 불가"]) {
+      if (rendered.includes(phrase)) {
+        failures.push(
+          `adapter ${adapter.target} render for ${role.name} still contains a tool-availability conditional: ${phrase}`
+        );
+      }
+    }
+
     if (!isOrchestratorSkill) {
       const permissions = adapter.permissions[role.mutationPolicy] || {};
       for (const key of Object.keys(permissions)) {
@@ -1770,9 +1885,9 @@ function validateAdapter(adapter, manifest) {
     renderedPaths.add(pattern.split("{role}").join(role.name));
   }
 
-  if (renderedPaths.size !== manifest.skills.length) {
+  if (renderedPaths.size !== manifest.roles.length) {
     failures.push(
-      `adapter ${adapter.target} produces ${renderedPaths.size} file path(s) for ${manifest.skills.length} role(s)`
+      `adapter ${adapter.target} produces ${renderedPaths.size} file path(s) for ${manifest.roles.length} role(s)`
     );
   }
 
@@ -1786,17 +1901,31 @@ function validate() {
   const failures = [];
   const manifest = loadManifest();
 
-  if (!Array.isArray(manifest.skills) || manifest.skills.length === 0) {
+  if (!Array.isArray(manifest.roles) || manifest.roles.length === 0) {
     failures.push("agent-workflow.manifest.json must declare at least one role");
   }
 
-  for (const role of manifest.skills) {
+  for (const role of manifest.roles) {
     if (!Array.isArray(role.handoffInputs) || !Array.isArray(role.handoffOutputs)) {
       failures.push(`manifest role ${role.name} must declare handoffInputs and handoffOutputs`);
     } else {
       for (const output of role.handoffOutputs) {
         if (!role.requiredOutputs.includes(output)) {
           failures.push(`manifest role ${role.name} handoff output is not a required output: ${output}`);
+        }
+      }
+    }
+    if (!Array.isArray(role.skills)) {
+      failures.push(`manifest role ${role.name} must declare a skills array (D14)`);
+    }
+    if (role.toolPolicy !== "deny-by-default") {
+      failures.push(`manifest role ${role.name} must declare toolPolicy: deny-by-default`);
+    }
+    // mutation_policy: none인 역할이 쓰기 도구를 선언하면 계약과 권한이 어긋난다.
+    if (role.mutationPolicy === "none") {
+      for (const toolName of [...(role.requiredTools || []), ...(role.optionalTools || [])]) {
+        if (toolName === "file_edit") {
+          failures.push(`manifest role ${role.name} has mutationPolicy none but declares ${toolName}`);
         }
       }
     }

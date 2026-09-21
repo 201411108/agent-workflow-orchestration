@@ -140,13 +140,15 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 
 ## Tool Guidance
 
-- `web_search` 사용 가능: 최신 외부 레퍼런스가 필요한 경우 실제 URL이 있는 2-3개만 포함한다.
-- `structured_question` 사용 가능: 답변이 없으면 권장 가정을 같이 기록한다.
-- `glob_search` 없음: `.agent-workflow/specs/`의 `features/`와 `decisions/`를 직접 확인한다.
+`## Tools` 표에 있는 도구만 사용한다. 각 도구를 쓸 때의 지침은 아래와 같다.
+
+- `web_search`: 실제 URL이 있는 레퍼런스만 2-3개 포함한다. 출처 없는 요약은 넣지 않는다.
+- `structured_question`: 답을 받지 못하면 권장 가정을 함께 기록한다.
+- `glob_search`: `.agent-workflow/specs/`의 `features/`와 `decisions/`를 확인한다.
 
 ## Fallback Rules
 
-- 외부 검색 불가: 레퍼런스 없이 로컬 컨텍스트와 사용자 요청만으로 articulate를 작성한다.
+- `web_search`가 `## Tools`에 없으면 레퍼런스 없이 로컬 컨텍스트만으로 작성한다.
 - 기존 `articulate.md` 없음: 신규 기획으로 간주한다.
 - 질문 불가: 구현에 치명적인 미결정만 남기고, 나머지는 명시적 기본값으로 채운다.
 
