@@ -1,0 +1,36 @@
+{
+  "startedAt": "2026-09-21T06:09:24.781Z",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R2",
+      "name": "사소한 단일 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [
+            "role-orchestrator",
+            "role-architect",
+            "role-designer",
+            "role-developer",
+            "role-planner",
+            "role-researcher",
+            "role-reviewer"
+          ],
+          "steps": 3,
+          "failures": [
+            {
+              "check": "routing.forbidden_roles",
+              "detail": "과잉 위임: role-planner, role-designer, role-architect",
+              "category": "모델 변동"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    }
+  ],
+  "checkPassRate": "4/5"
+}

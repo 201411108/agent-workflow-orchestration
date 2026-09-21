@@ -27,7 +27,9 @@
     "check:readme": "node scripts/check-readme.js",
     "test:smoke": "node scripts/fixture-smoke.js",
     "test:update-check": "node scripts/update-check-test.js",
-    "check": "npm run validate && npm run check:readme && npm run test:smoke && npm run test:update-check",
+    "test:judge": "node tests/eval/judge.test.js",
+    "eval": "node tests/eval/run.js",
+    "check": "npm run validate && npm run check:readme && npm run test:smoke && npm run test:update-check && npm run test:judge",
     "test": "npm run check"
   },
   "files": [
@@ -40,7 +42,8 @@
     "scripts/",
     "agent-workflow.manifest.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "tests/"
   ],
   "repository": {
     "type": "git",

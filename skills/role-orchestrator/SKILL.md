@@ -168,7 +168,11 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 규칙:
 
 - `source` 없는 주장은 `facts_confirmed`에 넣지 않는다. `assumptions`로 보낸다.
-  출처는 파일 경로나 URL이어야 하며 "코드에서 확인함" 같은 서술은 출처가 아니다.
+- `source`로 쓸 수 있는 형태는 셋뿐이다. 서술("코드에서 확인함")은 출처가 아니다.
+  - 파일 경로: `src/greet.js:42` (줄 번호는 선택)
+  - URL: `https://...`
+  - 검색 범위: `glob:**/package.json` — **없음을 확인한 사실**의 출처다.
+    "package.json이 없다"는 사실이며, 그 근거는 어디를 찾았는지다.
 - `out_of_scope`는 비울 수 있으나 생략할 수 없다. 자율 실행의 최대 실패 모드는
   멈춤이 아니라 범위가 조금씩 넓어지는 것이다.
 - `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.

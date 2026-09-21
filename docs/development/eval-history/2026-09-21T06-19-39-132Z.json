@@ -1,0 +1,113 @@
+{
+  "startedAt": "2026-09-21T06:19:39.132Z",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R1",
+      "name": "문서 없는 신규 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [
+            "role-orchestrator",
+            "role-planner"
+          ],
+          "steps": 14,
+          "failures": [
+            {
+              "check": "limits.max_steps",
+              "detail": "14/12",
+              "category": "컨텍스트 부족"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    },
+    {
+      "id": "R2",
+      "name": "사소한 단일 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "steps": 3,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R3",
+      "name": "articulate가 이미 있는 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-orchestrator"
+          ],
+          "steps": 11,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R4",
+      "name": "근거 없는 상태의 구조 결정 요구",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-architect"
+          ],
+          "steps": 10,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R5",
+      "name": "버그 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "steps": 2,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "steps": 9,
+          "failures": [
+            {
+              "check": "envelope.source_exists",
+              "detail": "실재하지 않는 출처: glob \"src/**/*\" → no files found (/private/var/folders/4z/1ztd4mm1433d249cgs9v9hcc0000gn/T/agent-workflow-eval-N47GBS), .agent-workflow/specs/features/greeting-language-selection/articulate.md (write denied)",
+              "category": "계약 결함"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    }
+  ],
+  "checkPassRate": "39/41"
+}
