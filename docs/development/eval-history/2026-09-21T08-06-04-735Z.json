@@ -1,0 +1,77 @@
+{
+  "startedAt": "2026-09-21T08:06:04.735Z",
+  "dryRun": false,
+  "runs": 5,
+  "cases": [
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 11,
+          "failures": []
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 11,
+          "failures": []
+        },
+        {
+          "attempt": 3,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 1,
+          "failures": [
+            {
+              "check": "envelope.present",
+              "detail": "봉투를 찾지 못했다",
+              "category": "계약 결함"
+            }
+          ]
+        },
+        {
+          "attempt": 4,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 0,
+          "failures": [
+            {
+              "check": "envelope.present",
+              "detail": "봉투를 찾지 못했다",
+              "category": "계약 결함"
+            }
+          ]
+        },
+        {
+          "attempt": 5,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 0,
+          "failures": [
+            {
+              "check": "envelope.present",
+              "detail": "봉투를 찾지 못했다",
+              "category": "계약 결함"
+            }
+          ]
+        }
+      ],
+      "passRate": "2/5"
+    }
+  ],
+  "checkPassRate": "20/23"
+}

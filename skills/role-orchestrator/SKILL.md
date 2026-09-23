@@ -173,11 +173,18 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
   - URL: `https://...`
   - 검색 범위: `glob:**/package.json` — **없음을 확인한 사실**의 출처다.
     "package.json이 없다"는 사실이며, 그 근거는 어디를 찾았는지다.
+- **아직 만들지 않은 파일은 출처가 아니다.** 쓸 예정이거나 쓰려다 실패한 문서를
+  `facts_confirmed`의 출처로 인용하지 않는다. 실제로 쓴 산출물은 `produced`에,
+  쓰지 못한 이유는 `blocking_questions`에 적는다.
 - `out_of_scope`는 비울 수 있으나 생략할 수 없다. 자율 실행의 최대 실패 모드는
   멈춤이 아니라 범위가 조금씩 넓어지는 것이다.
 - `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.
 - `needs`가 비어 있지 않으면 `status: blocked`이며 오케스트레이터가 배정한다.
   어휘는 `## Stop Conditions`에서 쓰는 것과 같다.
+- **`needs`의 각 항목은 어휘 토큰 하나다. 설명을 붙이지 않는다.**
+  - 맞음: `needs: [ui-decision, contract-decision]`
+  - 틀림: `needs: [ui-decision: 모듈 API 표면 결정]`
+  - 왜 필요한지는 본문에 적는다. `needs`는 오케스트레이터가 기계로 읽는 필드다.
 - 다음 역할을 지명하지 않는다. 배정은 오케스트레이터의 책임이다.
 
 ## Done Criteria

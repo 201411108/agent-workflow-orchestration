@@ -217,13 +217,37 @@ function runCase(spec, dryRun) {
       : String(spec.request);
     const result = spawnSync(
       "claude",
-      ["-p", "--output-format", "stream-json", "--verbose", prompt],
+      [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        // 역할이 계약대로 문서를 쓸 수 있어야 한다. 쓰기가 거부되면
+        // docs-only 역할이 만들지 못한 파일을 출처로 인용하게 되고,
+        // 하네스가 환경 제약을 계약 위반으로 오판한다.
+        // 대상은 매번 새로 만들고 지우는 임시 디렉터리다.
+        "--permission-mode",
+        "acceptEdits",
+        prompt,
+      ],
       { cwd: projectDir, encoding: "utf8", input: "", maxBuffer: 64 * 1024 * 1024 }
     );
     streamText = String(result.stdout || "") + String(result.stderr || "");
   }
 
   const observed = observe(streamText, projectDir);
+  const producedNothing =
+    observed.toolCalls === 0 &&
+    observed.transcript.join("").trim().length === 0;
+  if (producedNothing && !dryRun) {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    return {
+      invalid: true,
+      reason: "모델이 아무 것도 산출하지 않았다 (사용량 한도 또는 인증 문제로 추정)",
+      findings: [],
+      observed,
+    };
+  }
   let envelope = null;
   for (const chunk of observed.transcript) {
     const parsed = judge.parseEnvelope(chunk);
@@ -302,8 +326,17 @@ function main() {
     const spec = parseCase(fs.readFileSync(path.join(CASES_DIR, file), "utf8"));
     const caseReport = { id: spec.id, name: spec.name, runs: [] };
     let casePassed = 0;
+    let validRuns = 0;
+    let invalidRuns = 0;
     for (let attempt = 1; attempt <= runs; attempt += 1) {
       const outcome = runCase(spec, dryRun);
+      if (outcome.invalid) {
+        invalidRuns += 1;
+        caseReport.runs.push({ attempt, invalid: true, reason: outcome.reason });
+        console.log("  [skip] " + spec.id + " #" + attempt + " 무효: " + outcome.reason);
+        continue;
+      }
+      validRuns += 1;
       const failed = outcome.findings.filter(function (entry) { return !entry.ok; });
       const ok = failed.length === 0;
       if (ok) casePassed += 1;
@@ -325,9 +358,13 @@ function main() {
         console.log("        - " + entry.check + " (" + judge.classifyFailure(entry.check) + "): " + entry.detail);
       }
     }
-    caseReport.passRate = casePassed + "/" + runs;
+    caseReport.passRate = casePassed + "/" + validRuns;
+    caseReport.invalidRuns = invalidRuns;
     report.cases.push(caseReport);
-    console.log("  " + spec.id + " 통과율: " + casePassed + "/" + runs + "\n");
+    console.log(
+      "  " + spec.id + " 통과율: " + casePassed + "/" + validRuns +
+      (invalidRuns > 0 ? " (무효 " + invalidRuns + "회 제외)" : "") + "\n"
+    );
   }
 
   report.checkPassRate = passedChecks + "/" + totalChecks;

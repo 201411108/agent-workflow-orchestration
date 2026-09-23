@@ -29,6 +29,8 @@ out_of_scope: []
 - `source` 없는 주장은 `facts_confirmed`가 아니라 `assumptions`로 간다.
 - `source`는 파일 경로(`src/x.js:42`), URL, 또는 검색 범위(`glob:**/package.json`)다.
   검색 범위는 "없음을 확인한 사실"의 출처로 쓴다.
+  아직 만들지 않은 파일은 출처가 아니다.
+- `needs`의 각 항목은 어휘 토큰 하나다. 설명을 붙이지 않는다.
 - `out_of_scope`는 비울 수 있으나 생략할 수 없다.
 - `blocking_questions` 또는 `needs`가 비어 있지 않으면 `status: blocked`다.
 - `needs`의 어휘: `product-intent`, `ui-decision`, `code-evidence`,

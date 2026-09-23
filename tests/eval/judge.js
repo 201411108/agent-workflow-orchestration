@@ -248,10 +248,15 @@ function judgeEnvelope(envelope, options) {
     )
   );
 
-  const unknownNeeds = needs.filter(function (entry) {
-    const value = typeof entry === "string" ? entry : entry && entry.need;
-    return NEEDS_VOCABULARY.indexOf(String(value).trim()) === -1;
-  });
+  const unknownNeeds = needs
+    .filter(function (entry) {
+      const value = typeof entry === "string" ? entry : entry && entry.need;
+      return NEEDS_VOCABULARY.indexOf(String(value).trim()) === -1;
+    })
+    .map(function (entry) {
+      // 역할이 설명을 덧붙이면 객체가 된다. 원인을 알 수 있게 직렬화한다.
+      return typeof entry === "string" ? entry : JSON.stringify(entry);
+    });
   findings.push(
     finding(
       "envelope.needs_vocabulary",
