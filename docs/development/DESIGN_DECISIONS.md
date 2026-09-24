@@ -613,3 +613,40 @@ Codex에서 `deny-by-default`는 계약 문구로만 존재한다. 위반은 1.6
 "`web_search` 사용 가능: ..." 같은 조건문을 제거했다. 에이전트가 자기 도구
 가용성을 추론할 필요가 없어야 한다. `validate`가 렌더링 결과에 조건문이
 남아 있으면 실패시킨다.
+
+---
+
+## D18. 전제(consumes)와 선택 입력(optionalConsumes)을 나눈다
+
+- 상태: 확정
+- 결정일: 2026-09-24
+
+1.7까지 `consumes`는 한 덩어리였다. 엄격히 읽으면 선언된 입력이 **전부** 있어야
+배정 가능하다는 뜻이고, 그 결과 실제로 배정 불가한 역할이 있었다.
+
+- `role-developer`가 `designs_doc`을 소비했다. UI가 없는 기능에서는 그 문서가
+  영영 생산되지 않으므로 developer가 영원히 막힌다.
+- `role-planner`가 `evidence_report`를 소비했다. 조사가 필요 없는 요청에서도
+  researcher를 먼저 돌려야 한다는 뜻이 된다.
+
+1.8에서 역할을 추가하며 드러났다. 새 역할이 늘수록 이 문제는 커진다.
+
+```json
+{
+  "consumes": ["articulate_doc"],
+  "optionalConsumes": ["designs_doc", "architecture_assessment", "test_plan"]
+}
+```
+
+- `consumes`: 배정 전에 **반드시** 충족되어야 하는 전제
+- `optionalConsumes`: 있으면 쓰고 없어도 배정된다
+
+오케스트레이터 명부에 두 열이 따로 실린다. `validate`는 `consumes`에 대해서만
+생산자 존재를 요구한다.
+
+### 왜 처음부터 나누지 않았는가
+
+`handoffInputs`가 "다음 역할에 넘길 입력"이라는 느슨한 의미였고, 디스패치의
+전제 조건으로 쓰일 것을 전제하지 않았다. 1.7에서 그 선언을 배정 근거로 승격하면서
+의미가 바뀌었는데 구조를 함께 바꾸지 않은 것이다. 선언의 용도가 바뀌면
+구조도 다시 봐야 한다.

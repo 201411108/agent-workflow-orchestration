@@ -112,7 +112,7 @@ function smokeCodex(rootDir) {
   const doctor = run(["doctor", "--target", "codex"], rootDir);
 
   assertExists(path.join(rootDir, ".agents", "skills", "role-orchestrator", "SKILL.md"));
-  for (const roleName of ["planner", "designer", "developer", "researcher", "architect", "reviewer"]) {
+  for (const roleName of ["planner", "designer", "developer", "researcher", "architect", "reviewer", "analyst", "qa", "releaser"]) {
     assertExists(path.join(rootDir, ".codex", "agents", `role-${roleName}.toml`));
   }
   const plannerAgent = fs.readFileSync(
@@ -127,7 +127,14 @@ function smokeCodex(rootDir) {
   );
   assertIncludes(researcherAgent, 'sandbox_mode = "read-only"');
   // 1.5 도구 바인딩: Codex는 역할별 허용 목록이 없고 web_search만 제어 가능하다.
-  assertIncludes(researcherAgent, "web_search = true");
+  // 1.8에서 외부 조사 경계가 analyst로 옮겨갔다. researcher는 저장소 내부만 본다.
+  assertIncludes(researcherAgent, "web_search = false");
+  const analystAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-analyst.toml"),
+    "utf8"
+  );
+  assertIncludes(analystAgent, "web_search = true");
+  assertIncludes(analystAgent, 'sandbox_mode = "read-only"');
   const reviewerAgent = fs.readFileSync(
     path.join(rootDir, ".codex", "agents", "role-reviewer.toml"),
     "utf8"
@@ -179,7 +186,7 @@ function smokeCodex(rootDir) {
   );
   if (
     state.schemaVersion !== 3 ||
-    Object.keys(state.targets.codex.files).length !== 7 ||
+    Object.keys(state.targets.codex.files).length !== 10 ||
     state.targets.codex.shared.config.addedKeys.length !== 2
   ) {
     throw new Error("Codex install state must record full-file and shared-key ownership");
@@ -242,7 +249,15 @@ try {
     path.join(toolBindingFixture, ".claude", "agents", "role-researcher.md"),
     "utf8"
   );
-  assertIncludes(researcherAgentFile, "tools: Read, Glob, Grep, WebSearch, WebFetch");
+  // 1.8: 외부 조사는 analyst의 일이다. researcher는 저장소 내부만 본다.
+  assertIncludes(researcherAgentFile, "tools: Read, Glob, Grep");
+  assertNotIncludes(researcherAgentFile, "WebSearch");
+  const analystAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-analyst.md"),
+    "utf8"
+  );
+  assertIncludes(analystAgentFile, "WebSearch");
+  assertNotIncludes(analystAgentFile, "Write, Edit");
   const developerAgentFile = fs.readFileSync(
     path.join(toolBindingFixture, ".claude", "agents", "role-developer.md"),
     "utf8"
@@ -439,7 +454,7 @@ try {
   const migratedState = JSON.parse(fs.readFileSync(legacyStatePath, "utf8"));
   if (
     migratedState.targets.cursor.installedVersion !== "1.1.0" ||
-    Object.keys(migratedState.targets.cursor.files).length !== 7
+    Object.keys(migratedState.targets.cursor.files).length !== 10
   ) {
     throw new Error("forced legacy update must record v1.1.0 ownership hashes");
   }

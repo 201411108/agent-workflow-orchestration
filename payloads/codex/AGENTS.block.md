@@ -2,7 +2,8 @@
 ## Codex role orchestration
 
 - Prefer the `role-orchestrator` skill for new features, complex requests, and UI/UX changes.
-- Delegate only the roles it selects to the matching custom agents: `role-researcher`, `role-planner`, `role-designer`, `role-architect`, `role-developer`, `role-reviewer`.
+- It computes the assignment from each role's declarations. Do not follow a fixed role chain.
+- Available custom agents: `role-analyst`, `role-researcher`, `role-planner`, `role-designer`, `role-architect`, `role-qa`, `role-developer`, `role-reviewer`, `role-releaser`.
 - Pass compressed decisions, assumptions, risks, open questions, and unverified items between roles instead of the full conversation.
 - Do not delegate simple questions, file reads, or trivial edits unnecessarily.
 - The main agent must review, integrate, and verify subagent work.

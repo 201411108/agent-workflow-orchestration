@@ -503,7 +503,8 @@ function renderContractSummary(role) {
     `- mutation_policy: ${role.mutationPolicy}`,
     `- capabilities: ${(role.capabilities || []).join(", ") || "없음"}`,
     `- produces: ${(role.produces || []).join(", ") || "없음"}`,
-    `- consumes: ${(role.consumes || []).join(", ") || "없음"}`,
+    `- consumes: ${(role.consumes || []).join(", ") || "없음"} (전제)`,
+    `- optional_consumes: ${(role.optionalConsumes || []).join(", ") || "없음"} (있으면 사용)`,
     `- required_outputs: ${role.requiredOutputs.join(", ")}`,
     `- required_tools: ${role.requiredTools.join(", ")}`,
     `- optional_tools: ${role.optionalTools.join(", ")}`,
@@ -629,6 +630,7 @@ function renderRoleRoster(manifest, orchestratorName) {
         (role.capabilities || []).join(", ") || "-",
         (role.produces || []).join(", ") || "-",
         (role.consumes || []).join(", ") || "-",
+        (role.optionalConsumes || []).join(", ") || "-",
         role.mutationPolicy + " |",
       ].join(" | ");
     });
@@ -638,8 +640,10 @@ function renderRoleRoster(manifest, orchestratorName) {
     "배정은 이 선언에서 계산한다. 아래는 역할이 무엇을 할 수 있고 무엇을 필요로 하는지이며,",
     "요청 유형을 역할 순서로 바꾸는 표가 아니다.",
     "",
-    "| 역할 | capabilities | produces | consumes | mutation_policy |",
-    "|------|--------------|----------|----------|-----------------|",
+    "`consumes`는 배정 전에 충족되어야 하는 전제다. `optional`은 있으면 쓰고 없어도 배정된다.",
+    "",
+    "| 역할 | capabilities | produces | consumes (전제) | optional (있으면 사용) | mutation_policy |",
+    "|------|--------------|----------|-----------------|------------------------|-----------------|",
     ...rows,
     "",
     "환경 입력(생산자가 필요 없는 키): " +

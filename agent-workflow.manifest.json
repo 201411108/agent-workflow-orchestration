@@ -21,7 +21,9 @@
       ],
       "mutationPolicy": "docs-only",
       "consumes": [
-        "user_request",
+        "user_request"
+      ],
+      "optionalConsumes": [
         "workflow_state"
       ],
       "produces": [
@@ -54,8 +56,11 @@
       ],
       "mutationPolicy": "docs-only",
       "consumes": [
-        "user_request",
-        "evidence_report"
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "evidence_report",
+        "market_evidence"
       ],
       "produces": [
         "articulate_doc",
@@ -90,6 +95,7 @@
       "consumes": [
         "articulate_doc"
       ],
+      "optionalConsumes": [],
       "produces": [
         "designs_doc",
         "handoff_notes"
@@ -121,9 +127,13 @@
       ],
       "mutationPolicy": "implementation",
       "consumes": [
-        "articulate_doc",
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
         "designs_doc",
-        "architecture_assessment"
+        "architecture_assessment",
+        "test_plan",
+        "executable_tests"
       ],
       "produces": [
         "specs_doc",
@@ -158,7 +168,9 @@
       ],
       "mutationPolicy": "none",
       "consumes": [
-        "user_request",
+        "user_request"
+      ],
+      "optionalConsumes": [
         "workflow_state"
       ],
       "produces": [
@@ -171,8 +183,7 @@
       ],
       "optionalTools": [
         "glob_search",
-        "text_search",
-        "web_search"
+        "text_search"
       ],
       "toolPolicy": "deny-by-default"
     },
@@ -193,7 +204,9 @@
       ],
       "mutationPolicy": "none",
       "consumes": [
-        "articulate_doc",
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
         "designs_doc",
         "evidence_report"
       ],
@@ -227,9 +240,13 @@
       ],
       "mutationPolicy": "none",
       "consumes": [
+        "change_summary"
+      ],
+      "optionalConsumes": [
         "specs_doc",
-        "change_summary",
-        "verification"
+        "verification",
+        "executable_tests",
+        "coverage_gaps"
       ],
       "produces": [
         "verdict",
@@ -242,6 +259,121 @@
       "optionalTools": [
         "glob_search",
         "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-analyst",
+      "skills": [],
+      "capabilities": [
+        "external-evidence"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "market_evidence",
+        "metric_report",
+        "opportunity_candidates",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "none",
+      "consumes": [
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "workflow_state"
+      ],
+      "produces": [
+        "market_evidence",
+        "metric_report",
+        "opportunity_candidates",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "web_search"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-qa",
+      "skills": [],
+      "capabilities": [
+        "verification"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "test_plan",
+        "executable_tests",
+        "coverage_gaps",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "implementation",
+      "consumes": [
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
+        "designs_doc",
+        "specs_doc"
+      ],
+      "produces": [
+        "test_plan",
+        "executable_tests",
+        "coverage_gaps",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "text_search",
+        "test_runner"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-releaser",
+      "skills": [],
+      "capabilities": [],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "release_plan",
+        "deploy_result",
+        "rollback_plan",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "implementation",
+      "consumes": [
+        "verdict"
+      ],
+      "optionalConsumes": [
+        "change_summary",
+        "verification"
+      ],
+      "produces": [
+        "release_plan",
+        "deploy_result",
+        "rollback_plan",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "text_search",
+        "lint_runner",
+        "test_runner"
       ],
       "toolPolicy": "deny-by-default"
     }

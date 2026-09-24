@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.7 완료, 1.8 미착수**
-- 다음 작업: **1.8 신규 역할 3개**
+- 진행 단계: **Phase 1 — 1.8 완료, 1.9 미착수**
+- 다음 작업: **1.9 의존성 그래프 검증**
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -396,20 +396,28 @@ D2의 구현. 고정 체인을 폐기하고 라우팅을 선언에서 계산한�
 
 D1의 기준으로 도출된 역할만 추가한다.
 
-- [ ] `role-analyst` — 외부 시장/경쟁/유저 지표. `mutationPolicy: none`.
+- [x] `role-analyst` — 외부 시장/경쟁/유저 지표. `mutationPolicy: none`.
       산출물: `market_evidence`, `metric_report`, `opportunity_candidates`.
       체인의 **앞**(신규 기획)과 **뒤**(배포 후 피드백) 양쪽에 등장한다
-- [ ] `role-qa` — 수용 기준을 실행 가능한 테스트로. `mutationPolicy: implementation`
+- [x] `role-qa` — 수용 기준을 실행 가능한 테스트로. `mutationPolicy: implementation`
       (테스트 파일 경로로 한정). 산출물: `test_plan`, `executable_tests`, `coverage_gaps`.
       **`role-developer` 앞에 배치한다** (D7)
-- [ ] `role-releaser` — 빌드/배포/롤백. `mutationPolicy: implementation`.
+- [x] `role-releaser` — 빌드/배포/롤백. `mutationPolicy: implementation`.
       Phase 3.1에서 활성화하되 계약은 여기서 만든다
-- [ ] 기존 `role-researcher`의 본문을 내부 코드/문서 근거 수집으로 좁힌다
-      (현재 이름과 달리 본문이 전부 코드 조사이며, 외부 조사는 `role-analyst`로 간다)
+- [x] 기존 `role-researcher`의 본문을 내부 근거 수집으로 좁힌다.
+      `web_search`를 도구 선언에서 제거해 **경계를 도구로 강제**했다.
+      researcher는 `Read, Glob, Grep`, analyst는 `+ WebSearch, WebFetch`
+- [x] **추가: `consumes`/`optionalConsumes` 분리 (D18).** 한 덩어리로 두면
+      `designs_doc`이 없는 기능에서 developer가 영영 배정되지 않는다.
+      1.8에서 역할을 늘리며 드러난 기존 결함이다
 
 완료 기준:
-- 총 10개 역할이 배포되고 `/agent`에서 확인된다
-- 라우팅 표를 수정하지 않고 선언 추가만으로 동작한다 (1.7 검증)
+- [x] 총 10개 역할이 배포된다 (에이전트 9 + 오케스트레이터 스킬 1, 실측)
+- [x] **라우팅 표를 한 줄도 수정하지 않고 선언 추가만으로 동작한다.**
+      신규 `role-analyst`를 배정하는 R7을 추가했고 통과했다. 1.7의 실질 검증이다
+- [x] 하네스 51/51, 7/7 케이스 (`2026-09-24T02-13-53`)
+- [x] `validate`의 `[gap]` 경고가 사라졌다. `external-evidence`는 analyst가,
+      `verification`은 qa가 채운다
 
 ### 1.9 의존성 그래프 검증
 

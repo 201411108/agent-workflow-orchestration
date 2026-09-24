@@ -22,6 +22,52 @@
 
 ---
 
+## 2026-09-24 (17) — 1.8 신규 역할 3개
+
+- **1.7이 제대로 됐는지의 실질 검증**
+  - 역할 3개를 **선언만 추가**해서 넣었다. 라우팅 표를 한 줄도 고치지 않았다
+  - 신규 `role-analyst`를 배정하는 R7을 추가했고 통과했다
+  - 하네스 51/51, 7/7 케이스. 기존 6개 케이스도 전부 유지
+
+- **추가한 역할**
+  - `role-analyst` (none) — 외부 시장/경쟁/지표. `external-evidence` 제공.
+    체인의 앞(무엇을 만들지)과 뒤(배포 후 반응)에 모두 등장한다
+  - `role-qa` (implementation, 테스트 파일만) — 수용 기준을 실행 가능한 테스트로.
+    `verification` 제공. D7에 따라 developer **앞**에 선다
+  - `role-releaser` (implementation) — 배포와 롤백. Phase 3.1에서 활성화하되
+    계약은 지금 만든다. `capabilities`는 비워뒀다. 어떤 역할도 "배포가 필요하다"를
+    `needs`로 반환하지 않으므로 소비자 없는 어휘를 발명하지 않았다
+
+- **역할을 늘리며 드러난 기존 결함 (D18)**
+  - `consumes`가 한 덩어리였다. 엄격히 읽으면 선언된 입력이 **전부** 있어야
+    배정 가능하다는 뜻이고, 실제로 배정 불가한 역할이 있었다
+  - `role-developer`가 `designs_doc`을 소비 → UI 없는 기능에서 영영 막힘
+  - `role-planner`가 `evidence_report`를 소비 → 조사가 필요 없는 요청에도
+    researcher를 먼저 돌려야 한다는 뜻
+  - `consumes`(전제)와 `optionalConsumes`(있으면 사용)로 나눴다.
+    **선언의 용도가 바뀌면 구조도 다시 봐야 한다** — 1.7에서 핸드오프 선언을
+    배정 근거로 승격하면서 의미가 바뀌었는데 구조를 함께 바꾸지 않았던 것이다
+
+- **researcher / analyst 경계를 도구로 강제했다**
+  - researcher의 `web_search`를 도구 선언에서 제거했다
+  - 결과: researcher `Read, Glob, Grep` / analyst `+ WebSearch, WebFetch`
+  - 계약 문구가 아니라 네이티브 권한으로 경계가 지켜진다 (D17)
+
+- **1.2에서 넣은 검사가 일했다**
+  - `payloads/codex/AGENTS.block.md`가 신규 역할 3개를 언급하지 않아 `validate`가
+    실패시켰다. 안내 블록이 존재하지 않는 역할 목록을 주는 상태를 막았다
+
+- **미해결**
+  - `mutationPolicy: none` 역할의 동시 배정은 아직 케이스가 없다.
+    이제 researcher(code-evidence)와 analyst(external-evidence)가 둘 다 `none`이라
+    같은 스텝에 배정 가능한 조합이 생겼다. 1.9 이후 케이스를 추가한다
+  - `role-qa`의 "테스트 파일만 수정" 제한은 네이티브로 강제되지 않는다 (D15 한계).
+    계약으로만 지켜지며 위반은 하네스가 사후 탐지한다
+
+- **다음**: ROADMAP 1.9 의존성 그래프 검증
+
+---
+
 ## 2026-09-24 (16) — 1.7 능력 선언과 의존성 디스패치
 
 - **작업**
