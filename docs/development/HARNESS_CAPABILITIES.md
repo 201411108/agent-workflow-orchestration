@@ -304,7 +304,55 @@ SKILLS: ..., role-orchestrator, ...
 활성화하고 designer/developer를 **명시적 이유와 함께 제외**했다. 과잉 위임이 없었다.
 `articulate.md`가 실제 내용으로 작성됐고 `app.js`는 건드리지 않았다.
 
-### ⚠️ Codex 경로에서 발견한 계약 공백
+### 🔴 Codex 역할 파일이 전부 malformed였다 (2026-09-24 발견·수정)
+
+**1.5에서 추가한 `web_search`가 boolean이었다.** Codex는 이 키를 열거값으로만 받는다.
+
+```
+Ignoring malformed agent role definition: failed to deserialize agent role file at
+.codex/agents/role-analyst.toml: invalid type: boolean `true`, expected string or map
+```
+
+유효한 값은 `disabled`, `cached`, `indexed`, `live`다. boolean을 쓰면 **역할 파일
+전체가 무시된다.** 9개 역할이 하나도 로드되지 않는 상태로 1.5부터 배포되고 있었다.
+
+#### 왜 앞선 검증이 이것을 놓쳤는가
+
+2026-09-21 검증에서 "AGENTS: role-analyst, ... 9개 노출"을 확인했다고 기록했다.
+**그 답은 도구 정의가 아니라 `AGENTS.md`에서 나온 것이었다.** 1.8에서 안내 블록에
+역할 이름 9개를 나열했고, 모델이 그것을 읽어 답했다. 내 문서에 내 검증이 속았다.
+
+다시 확인할 때는 "AGENTS.md를 읽지 말라"고 명시했고, `error` 항목이 0개인 것을
+함께 확인했다. **모델에게 묻는 검증은 모델이 어디서 답을 얻었는지까지 통제해야 한다.**
+
+#### 앞서 기록한 "봉투 미산출"의 정체
+
+같은 날 "Codex 오케스트레이터가 봉투를 산출하지 않는다"고 기록했는데,
+**역할이 하나도 실행되지 않은 상태의 증상이었다.** TOML을 고친 뒤 R6이 통과한다.
+별도 계약 공백이 아니었다.
+
+### Codex 라우팅은 부모 스트림에서 관찰할 수 없다
+
+`codex exec --json`의 `collab_tool_call` 항목이 위임을 나타내지만
+`receiver_thread_ids`와 `agents_states`가 비어 있어 **어떤 에이전트를 띄웠는지 알 수 없다.**
+Claude는 Agent 도구 호출의 `subagent_type`으로 알 수 있다.
+
+따라서 하네스는 Codex에서 **위임 횟수는 세지만 역할 이름은 판정하지 않는다.**
+신호가 없는데 판정하면 거짓 결과가 나온다.
+
+처음에는 항목 JSON에서 `role-[a-z]+`를 훑었는데, 오케스트레이터 계약을 `cat`하는
+`command_execution`과 역할을 언급하는 `agent_message`가 전부 위임으로 잡혔다.
+한 줄 수정 요청에 10개 역할이 잡혔다.
+
+### Codex 베이스라인 (2026-09-24)
+
+수정 후 전체 스위트: **50/51 검사, 6/7 케이스**
+(`eval-history/2026-09-24T04-43-28-492Z-codex.json`)
+
+R2와 R5가 위임 0회로 정확히 통과한다. 남은 실패는 R4의 `needs.any_of` 1건이며
+분류가 필요하다.
+
+### 이전 기록: Codex 경로에서 발견한 계약 공백
 
 **오케스트레이터가 채워진 핸드오프 봉투를 산출하지 않았다.** 출력에 `from: role-*`로
 시작하는 블록이 3개 있었지만 전부 계약 안의 **템플릿 텍스트**였고, 플레이스홀더가

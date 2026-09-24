@@ -1,0 +1,127 @@
+{
+  "startedAt": "2026-09-24T04:43:28.492Z",
+  "target": "codex",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R1",
+      "name": "문서 없는 신규 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 9,
+          "toolCalls": 17,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R2",
+      "name": "사소한 단일 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 4,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R3",
+      "name": "articulate가 이미 있는 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 2,
+          "toolCalls": 7,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R4",
+      "name": "근거 없는 상태의 구조 결정 요구",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 3,
+          "toolCalls": 8,
+          "failures": [
+            {
+              "check": "needs.any_of",
+              "detail": "needs=[]",
+              "category": "컨텍스트 부족"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R5",
+      "name": "버그 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 8,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 2,
+          "toolCalls": 3,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    },
+    {
+      "id": "R7",
+      "name": "외부 근거가 필요한 기획",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 4,
+          "toolCalls": 6,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "50/51"
+}

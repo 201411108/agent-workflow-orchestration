@@ -440,12 +440,17 @@ D1의 기준으로 도출된 역할만 추가한다.
 
 Phase 1을 닫으며 열려 있는 것. Phase 2 착수를 막지는 않는다.
 
-- [ ] **하네스를 Codex 경로로 확장한다.** `tests/eval/run.js`가 `claude` CLI만
-      구동해서 Codex 계약 준수가 자동 검증되지 않는다
-- [ ] **Codex 오케스트레이터가 봉투를 산출하지 않는 문제.** 2026-09-24 수동 확인에서
-      채워진 봉투 0개였다. 4개 출력 블록은 정상이고 봉투만 빠졌다.
-      1회로는 계약 결함인지 모델 변동인지 구분할 수 없어 반복 실행이 필요하다.
-      근거는 HARNESS_CAPABILITIES 9절
+- [x] **하네스를 Codex 경로로 확장했다.** `node tests/eval/run.js --target codex`.
+      신뢰된 경로가 필요하므로 `AGENT_WORKFLOW_EVAL_BASE`로 기준 디렉터리를 지정하고,
+      신뢰되지 않으면 측정 전에 중단한다
+- [x] **Codex 역할 파일이 전부 malformed였던 것을 고쳤다.** `web_search`가 boolean이라
+      9개 역할이 하나도 로드되지 않았다. 1.5부터 그 상태로 배포되고 있었다
+- [x] ~~Codex 오케스트레이터가 봉투를 산출하지 않는 문제~~ — 위 결함의 증상이었다.
+      역할이 로드되니 R6이 통과한다
+- [ ] **Codex R4의 `needs.any_of` 실패 분류.** 베이스라인 50/51에서 유일한 실패다.
+      `--runs 5`로 계약 결함인지 모델 변동인지 구분한다
+- [ ] Codex 라우팅은 부모 스트림에서 관찰할 수 없다. 역할 이름을 알려면 다른 경로가
+      필요하다 (근거는 HARNESS_CAPABILITIES 9절)
 - [ ] `mutationPolicy: none` 역할의 동시 배정 케이스 (researcher + analyst)
 - [ ] 릴리스 전 버전 범프. 경로 변경이 있으므로 최소 minor
 

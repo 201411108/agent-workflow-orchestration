@@ -332,6 +332,22 @@ function judgeRun(observed, expectation) {
     )
   );
 
+  // 역할 정의가 로드되지 않으면 계약을 판정할 대상 자체가 없다.
+  // 하네스가 이것을 "위반 없음"으로 넘기면 깨진 배포를 정상으로 본다.
+  const setupErrors = (observed && observed.setupErrors) || [];
+  const roleLoadErrors = setupErrors.filter(function (message) {
+    return /malformed agent role|deserialize agent role|agent role file/i.test(String(message));
+  });
+  findings.push(
+    finding(
+      "setup.roles_loaded",
+      roleLoadErrors.length === 0,
+      roleLoadErrors.length === 0
+        ? "역할 정의 로드 오류 없음"
+        : roleLoadErrors.length + "건: " + String(roleLoadErrors[0]).slice(0, 120)
+    )
+  );
+
   const steps = (observed && observed.steps) || 0;
   const maxSteps = (expectation && expectation.max_steps) || 12;
   findings.push(finding("limits.max_steps", steps <= maxSteps, steps + "/" + maxSteps));
@@ -342,6 +358,9 @@ function judgeRun(observed, expectation) {
 // 실패 원인 3분류 (VERIFICATION.md L3).
 function classifyFailure(check) {
   if (check.indexOf("envelope.") === 0 || check === "scope.out_of_scope_respected" || check === "tools.declared_only") {
+    return "계약 결함";
+  }
+  if (check.indexOf("setup.") === 0) {
     return "계약 결함";
   }
   if (check.indexOf("routing.") === 0) {
