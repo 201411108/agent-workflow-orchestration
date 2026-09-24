@@ -277,6 +277,43 @@ npm 설치 후 사용자 프로젝트에서 동작하는 흐름(레이어 2)이�
 3. 자기 자신에 설치하는 것은 제품 검증이 아니다. 실제 검증은 Phase 2에서
    별도 미니 프로젝트로 수행한다.
 
+### 배포 산출물에서의 경계 (2026-09-24)
+
+D10을 계약으로 정해두고 **실제 npm 산출물이 그것을 지키는지는 검증하지 않았다.**
+Phase 1을 닫으며 확인한 결과 위반하고 있었다.
+
+| 유출된 것 | 레이어 |
+|---|---|
+| `docs/development/` (ROADMAP, DEVLOG, DESIGN_DECISIONS, eval-history 17개) | 1 |
+| `docs/operations/CODEX_ORCHESTRATION.md` | 1 |
+| `tests/eval/` (1.5에서 잘못 추가) | 1 |
+| `scripts/` (fixture-smoke 등 개발 테스트) | 1 |
+
+`bin/cli.js`가 실행 중 읽는 것은 `skills/`, `templates/`, `adapters/`,
+`payloads/codex/`, `agent-workflow.manifest.json`뿐이다. 나머지는 런타임에 불필요했다.
+
+`package.json`의 `files`를 런타임 필요분과 소비자 문서로 좁혔다.
+배포 산출물이 65개 파일에서 **31개(57KB)** 로 줄었다.
+
+### 기계적 강제
+
+`scripts/check-package-layers.js`가 `npm pack --dry-run --json`의 실제 파일 목록을
+읽어 **양방향으로** 검사한다. `npm run check`와 CI에 들어간다.
+
+| 방향 | 검사 |
+|---|---|
+| 유출 | 레이어 1 경로가 배포에 섞였는가 |
+| 누락 | 런타임에 필요한 파일이 빠졌는가 |
+| 누락 | manifest의 모든 역할 계약이 배포되는가 |
+
+**누락 방향이 더 위험하다.** `files`를 과하게 좁히면 소비자에게서 조용히 깨지는데,
+개발 저장소에서는 파일이 다 있으므로 테스트가 통과한다.
+역할 계약 검사는 manifest에서 동적으로 읽으므로 역할이 늘어도 따로 고칠 필요가 없다.
+
+검증: 세 실패 유형(개발 파일 유출 / 런타임 파일 누락 / 역할 계약 누락)을 각각
+주입해 잡는 것을 확인했고, 다듬은 tarball을 실제로 설치해 `init`, `install`,
+`feature`, `doctor`가 동작하는 것을 확인했다.
+
 ### 위반 해소 (2026-09-20)
 
 루트의 `.codex/agents/*.toml` 3개와 `.agents/skills/feature-orchestrator/SKILL.md`는

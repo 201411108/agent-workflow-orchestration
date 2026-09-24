@@ -22,6 +22,41 @@
 
 ---
 
+## 2026-09-24 (19) — 배포 레이어 경계 검증 (Phase 1 마무리)
+
+- **사용자 지적으로 확인한 것**
+  - D10을 계약으로 정해두고 **실제 npm 산출물이 그것을 지키는지는 한 번도
+    확인하지 않았다.** 확인해보니 위반하고 있었다
+  - 유출: `docs/development/`(ROADMAP, DEVLOG, DESIGN_DECISIONS, eval-history 17개),
+    `docs/operations/`, `tests/eval/`, `scripts/`
+  - `tests/`는 1.5에서 내가 `files`에 직접 추가한 것이다. 레이어 1 산출물을
+    제품에 넣어놓고 D10을 지키고 있다고 여겼다
+
+- **작업**
+  - `bin/cli.js`가 런타임에 읽는 경로를 확인했다. `skills/`, `templates/`,
+    `adapters/`, `payloads/codex/`, manifest뿐이다. 나머지는 불필요했다
+  - `package.json`의 `files`를 런타임 필요분과 소비자 문서로 좁혔다.
+    65개 파일 → **31개(57KB)**
+  - `scripts/check-package-layers.js` 추가. `npm run check`와 CI에 들어간다
+
+- **양방향 검사로 만든 이유**
+  - 유출 방향만 보면 반쪽이다. `files`를 과하게 좁히면 소비자에게서 조용히 깨지는데
+    개발 저장소에는 파일이 다 있으므로 테스트가 통과한다
+  - 런타임 필수 파일 누락과 역할 계약 누락을 함께 검사한다.
+    역할 계약은 manifest에서 동적으로 읽으므로 역할이 늘어도 고칠 필요가 없다
+
+- **검증**
+  - 세 실패 유형을 각각 주입해 잡는 것을 확인했다 (D12):
+    개발 파일 유출 / 런타임 파일 누락 / 역할 계약 누락
+  - **다듬은 tarball을 실제로 설치해 동작을 확인했다.** `init`, `install --target
+    claude`, `install --target codex`, `feature`, `doctor` 전부 정상.
+    9개 에이전트 + 1개 스킬, codex 9개
+  - tarball 내용을 직접 나열해 레이어 1 파일이 하나도 없음을 확인했다
+
+- **다음**: Phase 1 PR 생성 후 Phase 2 대상 선정
+
+---
+
 ## 2026-09-24 (18) — 1.9 의존성 그래프 검증 (Phase 1 완료)
 
 - **작업**
