@@ -1,10 +1,15 @@
 {
   "name": "@hankim.dev/agent-workflow-orchestration",
   "version": "1.1.0",
+  "environmentInputs": [
+    "user_request",
+    "workflow_state"
+  ],
   "roles": [
     {
       "name": "role-orchestrator",
       "skills": [],
+      "capabilities": [],
       "requiredInputs": [
         "user_request"
       ],
@@ -15,11 +20,11 @@
         "final_summary"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": [
+      "consumes": [
         "user_request",
         "workflow_state"
       ],
-      "handoffOutputs": [
+      "produces": [
         "role_handoff_blocks",
         "final_summary"
       ],
@@ -35,6 +40,10 @@
     {
       "name": "role-planner",
       "skills": [],
+      "capabilities": [
+        "product-intent",
+        "acceptance-criteria"
+      ],
       "requiredInputs": [
         "user_request"
       ],
@@ -44,11 +53,11 @@
         "handoff_notes"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": [
+      "consumes": [
         "user_request",
         "evidence_report"
       ],
-      "handoffOutputs": [
+      "produces": [
         "articulate_doc",
         "handoff_notes"
       ],
@@ -66,6 +75,9 @@
     {
       "name": "role-designer",
       "skills": [],
+      "capabilities": [
+        "ui-decision"
+      ],
       "requiredInputs": [
         "user_request"
       ],
@@ -75,10 +87,10 @@
         "handoff_notes"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": [
+      "consumes": [
         "articulate_doc"
       ],
-      "handoffOutputs": [
+      "produces": [
         "designs_doc",
         "handoff_notes"
       ],
@@ -95,6 +107,9 @@
     {
       "name": "role-developer",
       "skills": [],
+      "capabilities": [
+        "implementation"
+      ],
       "requiredInputs": [
         "user_request"
       ],
@@ -105,12 +120,13 @@
         "followups"
       ],
       "mutationPolicy": "implementation",
-      "handoffInputs": [
+      "consumes": [
         "articulate_doc",
         "designs_doc",
         "architecture_assessment"
       ],
-      "handoffOutputs": [
+      "produces": [
+        "specs_doc",
         "change_summary",
         "verification"
       ],
@@ -129,6 +145,9 @@
     {
       "name": "role-researcher",
       "skills": [],
+      "capabilities": [
+        "code-evidence"
+      ],
       "requiredInputs": [
         "user_request"
       ],
@@ -138,11 +157,11 @@
         "handoff_notes"
       ],
       "mutationPolicy": "none",
-      "handoffInputs": [
+      "consumes": [
         "user_request",
         "workflow_state"
       ],
-      "handoffOutputs": [
+      "produces": [
         "evidence_report",
         "unknowns",
         "handoff_notes"
@@ -160,6 +179,9 @@
     {
       "name": "role-architect",
       "skills": [],
+      "capabilities": [
+        "contract-decision"
+      ],
       "requiredInputs": [
         "user_request"
       ],
@@ -170,12 +192,12 @@
         "handoff_notes"
       ],
       "mutationPolicy": "none",
-      "handoffInputs": [
+      "consumes": [
         "articulate_doc",
         "designs_doc",
         "evidence_report"
       ],
-      "handoffOutputs": [
+      "produces": [
         "architecture_assessment",
         "decision_candidates",
         "risks",
@@ -193,6 +215,7 @@
     {
       "name": "role-reviewer",
       "skills": [],
+      "capabilities": [],
       "requiredInputs": [
         "user_request"
       ],
@@ -203,12 +226,12 @@
         "required_followups"
       ],
       "mutationPolicy": "none",
-      "handoffInputs": [
+      "consumes": [
         "specs_doc",
         "change_summary",
         "verification"
       ],
-      "handoffOutputs": [
+      "produces": [
         "verdict",
         "findings",
         "required_followups"

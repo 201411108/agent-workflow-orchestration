@@ -98,6 +98,8 @@ function observe(streamText, projectDir) {
   const transcript = [];
   let toolCalls = 0;
   let roleDispatches = 0;
+  let runError = null;
+  let sawResult = false;
   let finalText = "";
 
   for (const line of streamText.split("\n")) {
@@ -141,8 +143,19 @@ function observe(streamText, projectDir) {
         roleDispatches += 1;
       }
     }
-    if (event.type === "result" && typeof event.result === "string") {
-      finalText = event.result;
+    if (event.type === "result") {
+      if (typeof event.result === "string") {
+        finalText = event.result;
+      }
+      // 한도 도달, 인증 실패 등은 계약 위반이 아니다. 실행 자체가 성립하지 않았다.
+      if (event.is_error === true) {
+        runError = "is_error";
+      } else if (event.subtype && event.subtype !== "success") {
+        runError = "subtype:" + event.subtype;
+      } else if (event.api_error_status) {
+        runError = "api_error_status:" + event.api_error_status;
+      }
+      sawResult = true;
     }
     // 봉투는 서브에이전트 결과 안에 있고 메인 세션 최종 텍스트에는 요약만 남는다.
     // 모든 텍스트 블록과 도구 결과를 후보로 모은다.
@@ -183,6 +196,8 @@ function observe(streamText, projectDir) {
     toolCalls,
     finalText,
     transcript,
+    runError,
+    sawResult,
     changedFiles: changed,
   };
 }
@@ -236,17 +251,22 @@ function runCase(spec, dryRun) {
   }
 
   const observed = observe(streamText, projectDir);
-  const producedNothing =
-    observed.toolCalls === 0 &&
-    observed.transcript.join("").trim().length === 0;
-  if (producedNothing && !dryRun) {
+  // 실행이 성립하지 않은 회차를 계약 위반과 분리한다.
+  // 이것을 구분하지 않으면 한도 도달이 "위반 없음"으로 거짓 통과하거나
+  // 봉투 부재로 거짓 실패한다. 둘 다 하네스를 믿을 수 없게 만든다.
+  let invalidReason = null;
+  if (!dryRun) {
+    if (observed.runError) {
+      invalidReason = "실행 오류 (" + observed.runError + ")";
+    } else if (!observed.sawResult) {
+      invalidReason = "result 이벤트가 없다 (프로세스가 비정상 종료)";
+    } else if (observed.toolCalls === 0 && observed.transcript.join("").trim().length === 0) {
+      invalidReason = "모델이 아무 것도 산출하지 않았다";
+    }
+  }
+  if (invalidReason) {
     fs.rmSync(projectDir, { recursive: true, force: true });
-    return {
-      invalid: true,
-      reason: "모델이 아무 것도 산출하지 않았다 (사용량 한도 또는 인증 문제로 추정)",
-      findings: [],
-      observed,
-    };
+    return { invalid: true, reason: invalidReason, findings: [], observed };
   }
   let envelope = null;
   for (const chunk of observed.transcript) {

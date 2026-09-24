@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.6 완료, 1.7 미착수**
-- 다음 작업: **1.7 능력 선언과 의존성 디스패치**
+- 진행 단계: **Phase 1 — 1.7 완료, 1.8 미착수**
+- 다음 작업: **1.8 신규 역할 3개**
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -362,24 +362,35 @@ L3 동작 검증을 만든다. 1.4에서 핸드오프 스키마가 생겨야 판
 D2의 구현. 고정 체인을 폐기하고 라우팅을 선언에서 계산한다.
 **이 작업이 끝나면 1.8의 역할 추가가 거의 공짜가 된다.**
 
-- [ ] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다.
+- [x] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다.
+      `consumes`/`produces`는 기존 `handoffInputs`/`handoffOutputs`를 **이름만 바꿨다**.
+      새 키를 더하면 진실 원본이 둘이 된다. `loadManifest`가 구 키도 읽는다.
       `capabilities`는 D16의 능력 어휘와 같은 값을 쓴다
       (`product-intent`, `ui-decision`, `code-evidence`, `external-evidence`,
       `contract-decision`, `implementation`, `verification`, `acceptance-criteria`)
-- [ ] `validate`가 계약의 `필요한 것`과 역할 `capabilities` 어휘가 어긋나지 않는지 검사한다
-- [ ] 오케스트레이터 계약을 고정 라우팅 표에서 의존성 해소 절차로 교체한다
-- [ ] D3의 병렬 규칙을 오케스트레이터 계약에 명시한다
-- [ ] D6의 경계 조건을 오케스트레이터 계약에 명시한다
+- [x] `validate`가 `capabilities`를 D16 어휘로 제한하고, 소비 키의 생산자 존재를 검사한다.
+      제공자가 없는 능력은 실패가 아니라 `[gap]`으로 보고한다
+      (현재 `external-evidence`, `verification` — 1.8이 채운다)
+- [x] 오케스트레이터 계약을 고정 라우팅 표에서 의존성 해소 절차로 교체한다
+- [x] D3의 병렬 규칙을 `## Parallel Dispatch`로 명시한다
+- [x] D6의 경계 조건을 `## Dispatch Limits`로 명시한다
       (Phase 3에서 드라이버가 이 값을 기계적으로 강제한다)
-- [ ] `skills/role-orchestrator/SKILL.md`와 렌더링된 오케스트레이터에서
-      하드코딩된 라우팅 표를 제거한다
+- [x] 하드코딩된 라우팅 표를 제거한다. `validate`가 `role-a -> role-b` 형태의
+      체인 표기를 실패로 처리해 재유입을 막는다
+- [x] **렌더러가 오케스트레이터에 전체 역할 명부를 주입한다.** 자기 선언만으로는
+      의존성 해소가 불가능하다. 이것이 빠져 있어 1.7이 성립하지 않을 뻔했다
+- [x] `role-developer`의 `produces`에 `specs_doc`을 추가한다. `role-reviewer`가
+      소비하는데 생산자가 선언되지 않은 구멍이었다
 
 완료 기준:
-- **1.6 하네스의 라우팅 케이스 전체를 임계값 이상으로 통과한다 (전후 비교 필수)**
-- 저장소 어디에도 `요청 유형 → 고정 역할 순서` 표가 남아있지 않다
-- 같은 요청에 대해 상황(기존 문서 유무)에 따라 다른 역할 조합이 선택된다
-- `role-researcher`와 `role-analyst`처럼 `mutationPolicy: none`인 역할이
-  동시에 배정될 수 있다
+- [x] **1.6 하네스 전후 비교.** 이전 41/41 6/6 (`2026-09-23T14-38-25`) →
+      이후 41/41 6/6 (`2026-09-24T01-33-34`). 회귀 없음
+- [x] 저장소와 전 타깃 배포물 어디에도 고정 역할 체인이 남아있지 않다 (실측)
+- [x] 상황에 따라 다른 역할 조합이 선택된다. R1(문서 없음)은 planner를 배정하고
+      R3(articulate 존재)은 역할을 배정하지 않는다. R5는 베이스라인에서 직접 처리,
+      1.7에서 developer 배정 — 둘 다 기대를 만족하며 표가 아니라 계산임을 보여준다
+- [ ] `mutationPolicy: none`인 역할의 동시 배정 — **1.8 이후 검증.**
+      현재 `none` 역할 중 같은 스텝에 배정 가능한 조합이 나오는 케이스가 없다
 
 ### 1.8 신규 역할 3개
 

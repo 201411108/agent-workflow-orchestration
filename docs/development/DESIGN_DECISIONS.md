@@ -47,17 +47,27 @@
 대신 각 역할이 자기 능력과 입출력을 선언하고, 디스패처가 "아직 없는 산출물"을 기준으로
 매 스텝 라우팅을 다시 계산한다. 빌드 시스템의 의존성 해소와 같은 구조다.
 
-역할 선언(`agent-workflow.manifest.json`):
+역할 선언(`agent-workflow.manifest.json`). 1.7에서 구현했으며 `capabilities`는
+D16의 능력 어휘를 쓴다. `consumes`/`produces`는 기존 `handoffInputs`/`handoffOutputs`를
+이름만 바꾼 것이다. 두 개의 진실 원본을 만들지 않기 위해 새 키를 추가하지 않고 renamed.
 
 ```json
 {
-  "name": "role-analyst",
-  "capabilities": ["market-research", "metric-analysis", "competitor-scan"],
-  "produces": ["market_evidence", "metric_report"],
-  "consumes": ["user_request"],
-  "mutationPolicy": "none"
+  "name": "role-planner",
+  "capabilities": ["product-intent", "acceptance-criteria"],
+  "produces": ["articulate_doc", "handoff_notes"],
+  "consumes": ["user_request", "evidence_report"],
+  "mutationPolicy": "docs-only"
 }
 ```
+
+생산자가 필요 없는 키는 manifest의 `environmentInputs`에 선언한다
+(`user_request`, `workflow_state`).
+
+오케스트레이터가 선언을 읽으려면 배포 파일에 선언이 실려 있어야 한다.
+렌더러가 각 역할 파일에 자기 선언을, 오케스트레이터 파일에 **전체 역할 명부**를 넣는다.
+명부는 "요청 유형 → 역할 순서" 표가 아니라 역할이 무엇을 할 수 있고 무엇을
+필요로 하는지의 선언이다.
 
 디스패치 절차:
 

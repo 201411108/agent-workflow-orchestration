@@ -72,7 +72,7 @@ fallbacks:
 - 근거: [1-2줄]
 
 ### active_roles
-- 순서: [role-planner -> role-developer -> role-reviewer]
+- 순서: [이번 스텝에 배정한 역할. 없으면 "없음"]
 - 제외된 역할: [없으면 "없음"]
 
 ### role_handoff_blocks
@@ -90,26 +90,52 @@ fallbacks:
 - ADS 기록 여부:
 ```
 
-## Routing Rules
+## Dispatch
 
-| 요청 유형 | 활성 역할 |
-|-----------|-----------|
-| 신규 기능 또는 상위 기획 | `role-planner -> role-developer -> role-reviewer` |
-| articulate 작성/수정 | `role-planner` |
-| UI/UX 상세화 | `role-designer -> role-developer -> role-reviewer` |
-| 구현 specs 작성 | `role-developer -> role-reviewer` |
-| 코드 구현 | `role-developer -> role-reviewer` |
-| 버그 수정 | `role-developer -> role-reviewer` |
-| 리팩토링 | `role-developer -> role-reviewer` |
-| 복합 요청 | `role-planner -> role-developer -> role-reviewer` |
+**요청 유형을 역할 순서로 바꾸는 표를 쓰지 않는다.** 매 스텝 아래를 다시 계산한다.
+앞 단계에서 드러난 사실이 다음 배정을 바꿀 수 있기 때문이다.
 
-기본 체인은 `role-planner -> role-developer -> role-reviewer`다. 아래 조건이면 해당 역할을 필요한 단계 앞에 삽입한다:
+1. **목표 산출물 집합**을 정한다. 이 요청이 무엇을 만들어야 끝나는지다.
+   앞 단계 결과가 이 집합 자체를 바꿀 수 있다.
+2. 아직 없는 산출물 중 **`consumes`가 이미 충족된 것**을 고른다. 충족 판정의 재료는
+   환경 입력(`user_request`, `workflow_state`)과 지금까지 모인 산출물이다.
+3. 그것을 `produces`하는 역할을 활성화한다. 조건을 만족하는 역할이 여럿이면
+   `## Parallel Dispatch`에 따라 동시에 배정한다.
+4. 산출물과 확인된 사실을 상태에 반영하고 2로 돌아간다.
+5. 목표 산출물이 모두 채워지거나 `## Dispatch Limits`에 걸리면 종료한다.
 
-- 코드/문서 근거 또는 외부 참고 확인이 필요함: planner 앞에 `role-researcher`
-- UI 흐름, 화면, 상태, 접근성 변경 필요: developer 앞에 `role-designer`
-- API, 상태, 호환성 또는 구조 결정이 필요함: developer 앞에 `role-architect`
-- 구현 계획, 코드 변경, 검증 필요: `role-developer`
-- 구현 결과 또는 구현 전 스펙의 품질 확인이 필요함: `role-reviewer`
+역할이 `needs`를 담아 반환하면 `## Handling Returned Needs`를 따른다.
+각 역할의 `capabilities`, `produces`, `consumes`는 패키지의 역할 선언에 있다.
+그 선언을 읽어 배정하며, 여기에 역할 이름을 나열한 표를 두지 않는다.
+
+요청이 단순 질의, 파일 읽기, 사소한 단일 수정이면 목표 산출물 집합이 비어 있다.
+이때는 역할을 배정하지 않고 직접 처리한다. **불필요한 역할을 부르는 것이
+필요한 역할을 빠뜨리는 것보다 흔한 실패다.**
+
+## Parallel Dispatch
+
+`mutation_policy`가 병렬 가능 여부를 결정한다.
+
+| mutation_policy | 병렬 |
+|-----------------|------|
+| `none` | 제한 없음. 파일을 쓰지 않으므로 충돌하지 않는다 |
+| `docs-only` | 대상 문서 경로가 서로소일 때만 |
+| `implementation` | 항상 단독 실행 |
+
+추가 조건: 서로의 산출물을 소비하는 역할은 동시에 배정하지 않는다.
+동시성 상한은 하네스 설정을 따르며 여기서 정하지 않는다.
+
+## Dispatch Limits
+
+아래를 초과하면 진전 없음으로 보고하고 중단한다.
+
+| 조건 | 기본값 |
+|------|--------|
+| 전체 역할 호출 수 | 12 |
+| 같은 역할 재호출 | 2 |
+| 연속 무진전 스텝 | 2 |
+
+무진전은 새 산출물도 새로 확인된 사실도 늘지 않은 스텝을 말한다.
 
 ## Execution Rules
 

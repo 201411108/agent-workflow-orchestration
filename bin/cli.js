@@ -19,6 +19,19 @@ const SOURCE_DIR = path.join(ROOT_DIR, "skills");
 const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
 // 모든 역할이 같은 형식으로 반환하는 핸드오프 봉투의 필수 필드.
 // 1.6 검증 하네스가 이 필드들로 계약 준수를 기계 판정한다.
+// D16의 능력 어휘. 역할 계약의 "필요한 것", 핸드오프 needs, 역할 capabilities가
+// 모두 이 어휘를 공유해야 오케스트레이터가 반환된 needs를 역할로 해소할 수 있다.
+const CAPABILITY_VOCABULARY = [
+  "product-intent",
+  "ui-decision",
+  "code-evidence",
+  "external-evidence",
+  "contract-decision",
+  "implementation",
+  "verification",
+  "acceptance-criteria",
+];
+
 const HANDOFF_ENVELOPE_FIELDS = [
   "from:",
   "status:",
@@ -128,6 +141,22 @@ function loadManifest() {
   const legacyRoles = manifest["skills"];
   const roles = Array.isArray(manifest.roles) ? manifest.roles : legacyRoles;
   manifest.roles = Array.isArray(roles) ? roles : [];
+  // 1.7에서 handoffInputs/handoffOutputs를 consumes/produces로 바꿨다.
+  // 구 키를 가진 파일도 읽는다.
+  for (const role of manifest.roles) {
+    if (!Array.isArray(role.consumes) && Array.isArray(role["handoffInputs"])) {
+      role.consumes = role["handoffInputs"];
+    }
+    if (!Array.isArray(role.produces) && Array.isArray(role["handoffOutputs"])) {
+      role.produces = role["handoffOutputs"];
+    }
+    if (!Array.isArray(role.capabilities)) {
+      role.capabilities = [];
+    }
+  }
+  if (!Array.isArray(manifest.environmentInputs)) {
+    manifest.environmentInputs = ["user_request", "workflow_state"];
+  }
   // 외부 소비자를 위한 별칭. 이 파일의 코드는 roles만 쓴다.
   manifest["skills"] = manifest.roles;
   return manifest;
@@ -466,10 +495,15 @@ function getRolePermissions(adapter, mutationPolicy) {
 }
 
 function renderContractSummary(role) {
+  // capabilities / produces / consumes는 오케스트레이터가 의존성 해소로 배정할 때
+  // 읽는 선언이다. 배포 파일에 실려 있지 않으면 1.7의 디스패치가 성립하지 않는다.
   return [
     "## Contract Summary",
     "",
     `- mutation_policy: ${role.mutationPolicy}`,
+    `- capabilities: ${(role.capabilities || []).join(", ") || "없음"}`,
+    `- produces: ${(role.produces || []).join(", ") || "없음"}`,
+    `- consumes: ${(role.consumes || []).join(", ") || "없음"}`,
     `- required_outputs: ${role.requiredOutputs.join(", ")}`,
     `- required_tools: ${role.requiredTools.join(", ")}`,
     `- optional_tools: ${role.optionalTools.join(", ")}`,
@@ -580,6 +614,40 @@ function renderLegacyCodexRoleFile(skillName, projectRoot = cwd) {
     .join(specsRoot);
 }
 
+// 오케스트레이터는 전체 역할의 선언을 읽어 배정한다. 자기 선언만으로는
+// 의존성 해소가 불가능하므로 명부를 렌더링에 주입한다.
+// 이것은 "요청 유형 -> 역할 순서" 표가 아니라 역할이 무엇을 할 수 있고
+// 무엇을 필요로 하는지의 선언이다.
+function renderRoleRoster(manifest, orchestratorName) {
+  const rows = manifest.roles
+    .filter(function (role) {
+      return role.name !== orchestratorName;
+    })
+    .map(function (role) {
+      return [
+        "| `" + role.name + "`",
+        (role.capabilities || []).join(", ") || "-",
+        (role.produces || []).join(", ") || "-",
+        (role.consumes || []).join(", ") || "-",
+        role.mutationPolicy + " |",
+      ].join(" | ");
+    });
+  return [
+    "## Role Roster",
+    "",
+    "배정은 이 선언에서 계산한다. 아래는 역할이 무엇을 할 수 있고 무엇을 필요로 하는지이며,",
+    "요청 유형을 역할 순서로 바꾸는 표가 아니다.",
+    "",
+    "| 역할 | capabilities | produces | consumes | mutation_policy |",
+    "|------|--------------|----------|----------|-----------------|",
+    ...rows,
+    "",
+    "환경 입력(생산자가 필요 없는 키): " +
+      (manifest.environmentInputs || []).map(function (key) { return "`" + key + "`"; }).join(", "),
+    "",
+  ];
+}
+
 function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
@@ -597,6 +665,7 @@ function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
     `Contract: ${loadManifest().name} · ${skillName} (패키지 제공, 이 프로젝트의 파일 아님)`,
     "",
     ...(role ? renderContractSummary(role) : []),
+    ...renderRoleRoster(loadManifest(), skillName),
     parsed.body,
   ]
     .join("\n")
@@ -1702,6 +1771,15 @@ function validateSkill(skillName, manifestEntry) {
     failures.push(`skills/${skillName}/SKILL.md handoff envelope must declare from: ${skillName}`);
   }
 
+  // D2/1.7: 고정 라우팅 표가 계약에 다시 스며드는 것을 막는다.
+  // "role-a -> role-b" 같은 체인 표기가 있으면 의존성 해소가 아니라 표가 된다.
+  const chainPattern = /role-[a-z]+\s*(->|→)\s*role-[a-z]+/;
+  if (chainPattern.test(contents)) {
+    failures.push(
+      `skills/${skillName}/SKILL.md contains a hardcoded role chain; dispatch must be computed from declarations (D2)`
+    );
+  }
+
   // D16: 역할은 다음 역할을 지명하지 않는다. 막힌 조건과 필요한 능력만 기술하고
   // 배정은 오케스트레이터가 한다. 고정 라우팅이 계약에 다시 스며드는 것을 막는다.
   const stopSection = contents.match(/## Stop Conditions\n[\s\S]*?(?=\n## |$)/);
@@ -1906,13 +1984,20 @@ function validate() {
   }
 
   for (const role of manifest.roles) {
-    if (!Array.isArray(role.handoffInputs) || !Array.isArray(role.handoffOutputs)) {
-      failures.push(`manifest role ${role.name} must declare handoffInputs and handoffOutputs`);
+    if (!Array.isArray(role.consumes) || !Array.isArray(role.produces)) {
+      failures.push(`manifest role ${role.name} must declare consumes and produces`);
     } else {
-      for (const output of role.handoffOutputs) {
+      for (const output of role.produces) {
         if (!role.requiredOutputs.includes(output)) {
-          failures.push(`manifest role ${role.name} handoff output is not a required output: ${output}`);
+          failures.push(`manifest role ${role.name} produces a key that is not a required output: ${output}`);
         }
+      }
+    }
+    // capabilities는 D16의 능력 어휘만 쓴다. 계약의 "필요한 것"과 같은 값이어야
+    // 오케스트레이터가 반환된 needs를 역할로 해소할 수 있다.
+    for (const capability of role.capabilities || []) {
+      if (!CAPABILITY_VOCABULARY.includes(capability)) {
+        failures.push(`manifest role ${role.name} declares an unknown capability: ${capability}`);
       }
     }
     if (!Array.isArray(role.skills)) {
@@ -1931,6 +2016,33 @@ function validate() {
     }
     failures.push(...validateSkill(role.name, role));
   }
+
+  // 의존성 그래프: 소비하는 키는 환경 입력이거나 어떤 역할이 생산해야 한다.
+  const producedKeys = new Set();
+  for (const role of manifest.roles) {
+    for (const key of role.produces || []) {
+      producedKeys.add(key);
+    }
+  }
+  const environmentInputs = manifest.environmentInputs || [];
+  for (const role of manifest.roles) {
+    for (const key of role.consumes || []) {
+      if (!producedKeys.has(key) && !environmentInputs.includes(key)) {
+        failures.push(`manifest role ${role.name} consumes ${key} but no role produces it`);
+      }
+    }
+  }
+
+  // 제공자가 없는 능력은 실패가 아니라 알려진 공백으로 보고한다.
+  const providedCapabilities = new Set();
+  for (const role of manifest.roles) {
+    for (const capability of role.capabilities || []) {
+      providedCapabilities.add(capability);
+    }
+  }
+  const uncovered = CAPABILITY_VOCABULARY.filter(function (capability) {
+    return !providedCapabilities.has(capability);
+  });
 
   for (const adapter of loadAllAdapters()) {
     failures.push(...validateAdapter(adapter, manifest));
@@ -1981,7 +2093,11 @@ function validate() {
     process.exit(1);
   }
 
-  console.log("  [ok] core roles, adapters, and package metadata are consistent.\n");
+  console.log("  [ok] core roles, adapters, and package metadata are consistent.");
+  if (uncovered.length > 0) {
+    console.log(`  [gap] no role provides: ${uncovered.join(", ")} (expected until new roles are added)`);
+  }
+  console.log("");
 }
 
 function getCodexHome() {

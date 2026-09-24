@@ -207,6 +207,24 @@ check("위임이 없으면 역할 호출 수가 0", observed.steps === 0, "steps
 check("도구 호출은 별도로 세어진다", observed.toolCalls > 0, "toolCalls=" + observed.toolCalls);
 fs.rmSync(noDelegationRoot, { recursive: true, force: true });
 
+// 19. 무효 실행 감지: 한도 도달/오류를 계약 위반과 구분해야 한다.
+//     구분하지 않으면 한도가 "위반 없음"으로 거짓 통과하거나 봉투 부재로 거짓 실패한다.
+const errRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-err-"));
+const errorStream = [
+  JSON.stringify({ type: "system", subtype: "init" }),
+  JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, result: "" }),
+].join("\n");
+const errObserved = observe(errorStream, errRoot);
+check("오류 실행이 runError로 표시된다", Boolean(errObserved.runError), "runError=" + String(errObserved.runError));
+
+const okStream = [
+  JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "done" }),
+].join("\n");
+const okObserved = observe(okStream, errRoot);
+check("정상 실행은 runError가 없다", !okObserved.runError, "runError=" + String(okObserved.runError));
+check("result 이벤트를 봤다고 기록한다", okObserved.sawResult === true);
+fs.rmSync(errRoot, { recursive: true, force: true });
+
 if (failures > 0) {
   console.error("\nJudge test failed: " + failures + " issue(s).\n");
   process.exit(1);
