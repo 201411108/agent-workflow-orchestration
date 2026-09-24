@@ -1738,6 +1738,97 @@ function resume() {
   console.log(`  - ${path.relative(cwd, path.join(itemDir, "verification.md"))}\n`);
 }
 
+// 역할 의존성 그래프. 간선은 consumes(전제)로만 만든다.
+// optionalConsumes는 없어도 배정되므로 교착을 만들지 않는다.
+function buildRoleGraph(manifest) {
+  const environmentInputs = manifest.environmentInputs || [];
+  const producers = new Map();
+  for (const role of manifest.roles) {
+    for (const key of role.produces || []) {
+      if (!producers.has(key)) {
+        producers.set(key, []);
+      }
+      producers.get(key).push(role.name);
+    }
+  }
+  const edges = new Map();
+  for (const role of manifest.roles) {
+    const upstream = new Set();
+    for (const key of role.consumes || []) {
+      if (environmentInputs.includes(key)) {
+        continue;
+      }
+      for (const producer of producers.get(key) || []) {
+        if (producer !== role.name) {
+          upstream.add(producer);
+        }
+      }
+    }
+    edges.set(role.name, Array.from(upstream));
+  }
+  return { edges, producers, environmentInputs };
+}
+
+// 필수 간선에 순환이 있으면 관련 역할이 영원히 배정되지 않는다.
+function findGraphCycles(edges) {
+  const state = new Map();
+  const stack = [];
+  const cycles = [];
+  function visit(name) {
+    if (state.get(name) === "done") {
+      return;
+    }
+    if (state.get(name) === "open") {
+      const start = stack.indexOf(name);
+      cycles.push(stack.slice(start).concat(name).join(" <- "));
+      return;
+    }
+    state.set(name, "open");
+    stack.push(name);
+    for (const upstream of edges.get(name) || []) {
+      visit(upstream);
+    }
+    stack.pop();
+    state.set(name, "done");
+  }
+  for (const name of edges.keys()) {
+    visit(name);
+  }
+  return cycles;
+}
+
+// 환경 입력에서 출발해 고정점까지 배정 가능한 역할을 넓힌다.
+// 끝까지 들어오지 못한 역할은 어떤 경로로도 배정되지 않는다.
+function findDispatchOrder(manifest) {
+  const environmentInputs = manifest.environmentInputs || [];
+  const available = new Set(environmentInputs);
+  const order = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const role of manifest.roles) {
+      if (order.includes(role.name)) {
+        continue;
+      }
+      const ready = (role.consumes || []).every(function (key) {
+        return available.has(key);
+      });
+      if (!ready) {
+        continue;
+      }
+      order.push(role.name);
+      for (const key of role.produces || []) {
+        available.add(key);
+      }
+      changed = true;
+    }
+  }
+  const unreachable = manifest.roles
+    .map(function (role) { return role.name; })
+    .filter(function (name) { return !order.includes(name); });
+  return { order, unreachable };
+}
+
 function validateSkill(skillName, manifestEntry) {
   const skillFile = path.join(SOURCE_DIR, skillName, "SKILL.md");
   const failures = [];
@@ -2037,6 +2128,19 @@ function validate() {
     }
   }
 
+  // 필수 간선의 순환과 도달 불가 역할을 검사한다. 역할이 10개를 넘으면
+  // 손으로는 맞출 수 없는 영역이다.
+  const graph = buildRoleGraph(manifest);
+  for (const cycle of findGraphCycles(graph.edges)) {
+    failures.push(`manifest role dependency cycle: ${cycle}`);
+  }
+  const dispatch = findDispatchOrder(manifest);
+  for (const name of dispatch.unreachable) {
+    failures.push(
+      `manifest role ${name} can never be dispatched; its consumes are not reachable from environment inputs`
+    );
+  }
+
   // 제공자가 없는 능력은 실패가 아니라 알려진 공백으로 보고한다.
   const providedCapabilities = new Set();
   for (const role of manifest.roles) {
@@ -2101,6 +2205,7 @@ function validate() {
   if (uncovered.length > 0) {
     console.log(`  [gap] no role provides: ${uncovered.join(", ")} (expected until new roles are added)`);
   }
+  console.log(`  [graph] ${dispatch.order.length} role(s) reachable, no dependency cycles`);
   console.log("");
 }
 
