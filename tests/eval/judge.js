@@ -154,7 +154,8 @@ function sourceExists(source, projectRoot) {
   if (/^glob:\S+/.test(String(source).trim())) {
     return true;
   }
-  const withoutLine = String(source).replace(/:\d+(-\d+)?$/, "").trim();
+  // 줄 지정은 42, 3-5, 3-5,41-53 형태가 모두 온다.
+  const withoutLine = String(source).replace(/:\d+(-\d+)?(,\d+(-\d+)?)*$/, "").trim();
   if (withoutLine === "") {
     return false;
   }
@@ -209,6 +210,18 @@ function judgeEnvelope(envelope, options) {
   const brokenSources = facts.filter(function (entry) {
     return entry && typeof entry === "object" && entry.source && !sourceExists(entry.source, projectRoot);
   });
+  const copiedPlaceholders = facts.filter(function (entry) {
+    return entry && typeof entry === "object" && /[<>]/.test(String(entry.source || ""));
+  });
+  findings.push(
+    finding(
+      "envelope.no_template_copy",
+      copiedPlaceholders.length === 0,
+      copiedPlaceholders.length === 0
+        ? "예시 복사 없음"
+        : "봉투 예시를 그대로 복사했다: " + String(copiedPlaceholders[0].source)
+    )
+  );
   findings.push(
     finding(
       "envelope.source_exists",

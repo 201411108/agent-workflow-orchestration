@@ -200,6 +200,25 @@ expectCheck("역할 로드 실패", judge.judgeRun(
 expectCheck("정상 로드", judge.judgeRun({ rolesSelected: [], steps: 0, setupErrors: [] }, {}), "setup.roles_loaded", true);
 check("setup 실패는 계약 결함으로 분류", judge.classifyFailure("setup.roles_loaded") === "계약 결함");
 
+// 17e. 다중 줄 범위 출처를 읽는다 (2026-09-24 R4에서 발견).
+const rangeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-range-"));
+fs.writeFileSync(path.join(rangeRoot, "notes.md"), "x");
+for (const spec of ["notes.md", "notes.md:3", "notes.md:3-5", "notes.md:3-5,41-53"]) {
+  check("출처 줄 지정 " + spec, judge.sourceExists(spec, rangeRoot), spec);
+}
+check("없는 파일은 거부", !judge.sourceExists("missing.md:1-2", rangeRoot));
+fs.rmSync(rangeRoot, { recursive: true, force: true });
+
+// 17f. 봉투 예시를 그대로 복사하면 잡는다 (2026-09-24 R4에서 반복 발생).
+const copyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-copy-"));
+expectCheck("예시 복사 탐지", judge.judgeEnvelope(judge.parseEnvelope(envelopeText({
+  facts_confirmed: "\n  - claim: <확인된 사실>\n    source: <파일 경로>:<줄 번호>",
+})), { projectRoot: copyRoot }), "envelope.no_template_copy", false);
+expectCheck("빈 목록은 정상", judge.judgeEnvelope(judge.parseEnvelope(envelopeText({
+  facts_confirmed: "[]",
+})), { projectRoot: copyRoot }), "envelope.no_template_copy", true);
+fs.rmSync(copyRoot, { recursive: true, force: true });
+
 // 18. 관찰기 회귀: system/init 이벤트의 에이전트 "목록"을 호출로 오인하면 안 된다.
 //     이 버그가 있으면 모든 케이스가 과잉 위임으로 잘못 판정된다 (2026-09-21 실제 발생).
 const { observe } = require("./run");

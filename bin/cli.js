@@ -1864,6 +1864,20 @@ function validateSkill(skillName, manifestEntry) {
     }
   }
 
+  // 진짜처럼 보이는 예시 경로는 그대로 복사된다. 두 번 겪었다.
+  // 배포된 계약의 Source 줄(1.6)과 봉투의 source 플레이스홀더(R4)가 각각 인용됐다.
+  // 플레이스홀더는 복사해도 통하지 않는 형태여야 한다.
+  const sampleSource = contents.match(/\n\s*source:\s*(\S+)/);
+  if (sampleSource) {
+    const value = sampleSource[1];
+    const looksReal = /^[\w./-]+\.[a-z]{2,4}(:\d+)?$/i.test(value);
+    if (looksReal) {
+      failures.push(
+        `skills/${skillName}/SKILL.md envelope uses a realistic sample source (${value}); use a placeholder like <파일 경로>:<줄 번호>`
+      );
+    }
+  }
+
   if (!contents.includes(`from: ${skillName}`)) {
     failures.push(`skills/${skillName}/SKILL.md handoff envelope must declare from: ${skillName}`);
   }
