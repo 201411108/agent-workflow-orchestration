@@ -286,10 +286,41 @@ trust 정보는 `$CODEX_HOME/config.toml`(기본 `~/.codex/config.toml`)의
 `[projects."<path>"]` 섹션에 `trust_level = "trusted"`로 기록된다.
 `-c` 오버라이드로는 trust를 부여할 수 없다.
 
-### 남은 확인
+### Codex 최종 확인 (2026-09-24)
 
-- [ ] 프로젝트를 trusted로 만든 뒤 `AGENTS:`에 역할 6개가 나오는지
-      (Codex 사용량 한도로 2026-09-21 이후 가능)
+프로젝트 trust를 갖춘 상태에서 다시 확인했다. trust는 상위 경로에서 상속되므로
+이미 신뢰된 경로 아래에 검증 프로젝트를 만들었다.
+
+```
+AGENTS: role-analyst, role-researcher, role-planner, role-designer,
+        role-architect, role-qa, role-developer, role-reviewer, role-releaser
+SKILLS: ..., role-orchestrator, ...
+```
+
+**custom agent 9개와 오케스트레이터 스킬이 전부 노출된다.** trust 가설이 확증됐다.
+신뢰되지 않으면 `NONE`, 신뢰되면 9개 전부다.
+
+배정도 실제로 동작한다. "기획부터 시작해줘" 요청에 오케스트레이터가 `role-planner`만
+활성화하고 designer/developer를 **명시적 이유와 함께 제외**했다. 과잉 위임이 없었다.
+`articulate.md`가 실제 내용으로 작성됐고 `app.js`는 건드리지 않았다.
+
+### ⚠️ Codex 경로에서 발견한 계약 공백
+
+**오케스트레이터가 채워진 핸드오프 봉투를 산출하지 않았다.** 출력에 `from: role-*`로
+시작하는 블록이 3개 있었지만 전부 계약 안의 **템플릿 텍스트**였고, 플레이스홀더가
+그대로였다. 실제로 채워진 봉투는 0개다.
+
+오케스트레이터의 4개 출력 블록(`task_classification`, `active_roles`,
+`role_handoff_blocks`, `final_summary`)은 정상 산출됐다. 봉투만 빠졌다.
+
+Claude 경로에서는 R6이 5/5로 봉투를 산출한다. 따라서 Codex 경로 고유 문제이거나
+오케스트레이터 고유 문제다. 1회 실행으로는 계약 결함인지 모델 변동인지 구분할 수 없다.
+
+### 하네스 커버리지 공백
+
+`tests/eval/run.js`는 `claude` CLI만 구동한다. **Codex 경로의 계약 준수는 자동
+검증되지 않는다.** 위 발견도 수동 실행으로 찾았다. 하네스를 Codex로 확장하기 전까지
+Codex 준수는 미검증으로 취급한다.
 
 ### 제품에 미치는 영향
 
