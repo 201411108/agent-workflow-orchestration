@@ -191,6 +191,15 @@ expectCheck("따옴표 감싼 glob 출처", judge.judgeEnvelope(judge.parseEnvel
 })), { projectRoot: quotedRoot }), "envelope.source_exists", true);
 fs.rmSync(quotedRoot, { recursive: true, force: true });
 
+// 17d. 역할 정의 로드 실패를 잡는다 (2026-09-24 Codex에서 실제 발생).
+//      역할이 로드되지 않으면 판정할 계약 자체가 없다.
+expectCheck("역할 로드 실패", judge.judgeRun(
+  { rolesSelected: [], steps: 0, setupErrors: ["Ignoring malformed agent role definition: failed to deserialize agent role file at .codex/agents/role-qa.toml"] },
+  {}
+), "setup.roles_loaded", false);
+expectCheck("정상 로드", judge.judgeRun({ rolesSelected: [], steps: 0, setupErrors: [] }, {}), "setup.roles_loaded", true);
+check("setup 실패는 계약 결함으로 분류", judge.classifyFailure("setup.roles_loaded") === "계약 결함");
+
 // 18. 관찰기 회귀: system/init 이벤트의 에이전트 "목록"을 호출로 오인하면 안 된다.
 //     이 버그가 있으면 모든 케이스가 과잉 위임으로 잘못 판정된다 (2026-09-21 실제 발생).
 const { observe } = require("./run");

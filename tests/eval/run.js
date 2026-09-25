@@ -76,8 +76,65 @@ function parseCase(text) {
   return spec;
 }
 
-function makeProject(spec) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-eval-"));
+// Codex는 신뢰되지 않은 프로젝트에서 .codex/ 레이어 전체를 건너뛴다.
+// 임시 디렉터리는 보통 신뢰 목록 밖이므로 기준 경로를 바꿀 수 있어야 한다.
+const BASE_DIR = process.env.AGENT_WORKFLOW_EVAL_BASE || os.tmpdir();
+
+function getCodexHome() {
+  return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+}
+
+// 신뢰되지 않은 경로에서 Codex를 돌리면 역할이 하나도 로드되지 않은 채
+// "위반 없음"처럼 보인다. 측정 전에 막는다.
+function assertCodexTrust(dir) {
+  const configPath = path.join(getCodexHome(), "config.toml");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`Codex 신뢰 정보를 읽을 수 없다: ${configPath}`);
+  }
+  const trusted = [];
+  let current = null;
+  for (const raw of fs.readFileSync(configPath, "utf8").split("\n")) {
+    const line = raw.trim();
+    const section = line.match(/^\[projects\."(.+)"\]$/);
+    if (section) {
+      current = section[1];
+      continue;
+    }
+    if (line.indexOf("[") === 0) {
+      current = null;
+      continue;
+    }
+    if (current && /^trust_level\s*=\s*"trusted"$/.test(line)) {
+      trusted.push(current);
+      current = null;
+    }
+  }
+  let resolved;
+  try {
+    resolved = fs.realpathSync(dir);
+  } catch (error) {
+    resolved = path.resolve(dir);
+  }
+  const anchor = trusted.filter(function (base) {
+    let real;
+    try {
+      real = fs.realpathSync(base);
+    } catch (error) {
+      real = path.resolve(base);
+    }
+    return resolved === real || resolved.indexOf(real + path.sep) === 0;
+  })[0];
+  if (!anchor) {
+    throw new Error(
+      `Codex 평가에는 신뢰된 경로가 필요하다. ${resolved} 는 신뢰 목록에 없다.\n` +
+        `  AGENT_WORKFLOW_EVAL_BASE 를 신뢰된 디렉터리로 지정하라.`
+    );
+  }
+}
+
+function makeProject(spec, targetName) {
+  fs.mkdirSync(BASE_DIR, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(BASE_DIR, "agent-workflow-eval-"));
   for (const relative of Object.keys(spec.setup.files)) {
     const file = path.join(dir, relative);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -87,7 +144,10 @@ function makeProject(spec) {
   spawnSync("git", ["add", "-A"], { cwd: dir });
   spawnSync("git", ["-c", "user.email=eval@local", "-c", "user.name=eval", "commit", "-qm", "setup"], { cwd: dir });
   spawnSync(process.execPath, [CLI, "init"], { cwd: dir });
-  spawnSync(process.execPath, [CLI, "install", "--target", "claude"], { cwd: dir });
+  spawnSync(process.execPath, [CLI, "install", "--target", targetName], { cwd: dir });
+  if (targetName === "codex") {
+    assertCodexTrust(dir);
+  }
   return dir;
 }
 
@@ -202,6 +262,102 @@ function observe(streamText, projectDir) {
   };
 }
 
+// codex exec --json 의 이벤트를 관찰한다.
+// item.completed 하나가 메시지 또는 도구 실행 하나에 해당한다.
+function observeCodex(streamText, projectDir) {
+  const rolesSelected = [];
+  const toolsUsed = [];
+  const transcript = [];
+  let toolCalls = 0;
+  let roleDispatches = 0;
+  let runError = null;
+  let sawResult = false;
+  let finalText = "";
+  const setupErrors = [];
+
+  for (const line of streamText.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.charAt(0) !== "{") {
+      continue;
+    }
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch (error) {
+      continue;
+    }
+    if (event.type === "turn.completed") {
+      sawResult = true;
+    }
+    if (event.type === "turn.failed" || event.type === "error") {
+      runError = event.type;
+      sawResult = true;
+    }
+    if (event.type !== "item.completed" || !event.item) {
+      continue;
+    }
+    const item = event.item;
+    // error 항목은 도구 실행이 아니다. 여기에 역할 이름이 들어 있어도 위임이 아니다.
+    // 실제로 역할 파일이 malformed면 Codex가 이름을 나열한 에러를 쏟아내는데,
+    // 그것을 위임으로 세면 모든 케이스가 과잉 위임으로 오판된다 (2026-09-24 실측).
+    if (item.type === "error") {
+      setupErrors.push(String(item.message || ""));
+      continue;
+    }
+    if (item.type === "agent_message") {
+      if (typeof item.text === "string") {
+        transcript.push(item.text);
+        finalText = item.text;
+      }
+      continue;
+    }
+    toolCalls += 1;
+    if (toolsUsed.indexOf(item.type) === -1) {
+      toolsUsed.push(item.type);
+    }
+    if (typeof item.text === "string") {
+      transcript.push(item.text);
+    }
+    if (typeof item.aggregated_output === "string") {
+      transcript.push(item.aggregated_output);
+    }
+    // 협업 도구 호출만 실제 위임이다.
+    //
+    // 역할 이름을 문자열로 훑으면 안 된다. 오케스트레이터 계약을 cat 하는
+    // command_execution이나 역할을 언급하는 agent_message가 전부 위임으로 잡힌다
+    // (2026-09-24 실측: R2 한 줄 수정에 10개 역할이 잡혔다).
+    //
+    // 다만 Codex 부모 스트림은 **어떤 에이전트를 띄웠는지 담지 않는다.**
+    // receiver_thread_ids와 agents_states가 비어 있다. 따라서 위임 횟수는 셀 수
+    // 있어도 역할 이름은 알 수 없다. 이름을 추측하지 않고 비워 둔다.
+    if (item.type === "collab_tool_call") {
+      roleDispatches += 1;
+    }
+  }
+
+  const status = spawnSync("git", ["status", "--porcelain"], { cwd: projectDir, encoding: "utf8" });
+  const changed = String(status.stdout || "")
+    .split("\n")
+    .map(function (line) { return line.slice(3).trim(); })
+    .filter(function (file) {
+      return file && file.indexOf(".codex/") !== 0 && file.indexOf(".agents/") !== 0 && file.indexOf(".agent-workflow/") !== 0 && file !== "AGENTS.md";
+    });
+
+  transcript.push(finalText);
+  return {
+    rolesSelected,
+    toolsUsed,
+    steps: roleDispatches,
+    toolCalls,
+    finalText,
+    transcript,
+    runError,
+    sawResult,
+    setupErrors,
+    changedFiles: changed,
+  };
+}
+
 function declaredNativeTools(roleNames) {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "agent-workflow.manifest.json"), "utf8"));
   const adapter = JSON.parse(fs.readFileSync(path.join(ROOT, "adapters", "claude.json"), "utf8"));
@@ -220,37 +376,63 @@ function declaredNativeTools(roleNames) {
   return allowed;
 }
 
-function runCase(spec, dryRun) {
-  const projectDir = makeProject(spec);
+// 타깃별 실행 방법. 관찰기가 다르므로 함께 묶는다.
+const EVAL_TARGETS = {
+  claude: {
+    observesRoleNames: true,
+    observe: observe,
+    command: function (prompt) {
+      return {
+        bin: "claude",
+        args: [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          // 역할이 계약대로 문서를 쓸 수 있어야 한다.
+          "--permission-mode",
+          "acceptEdits",
+          prompt,
+        ],
+      };
+    },
+  },
+  codex: {
+    // Codex 부모 스트림에는 어떤 에이전트를 띄웠는지가 없다.
+    // 라우팅을 판정할 신호가 없으므로 봉투와 셋업만 판정한다.
+    observesRoleNames: false,
+    observe: observeCodex,
+    command: function (prompt) {
+      return {
+        bin: "codex",
+        args: ["exec", "--json", "--sandbox", "workspace-write", prompt],
+      };
+    },
+  },
+};
+
+function runCase(spec, dryRun, targetName) {
+  const target = EVAL_TARGETS[targetName];
+  const projectDir = makeProject(spec, targetName);
   let streamText = "";
   if (dryRun) {
     streamText = JSON.stringify({ type: "result", result: "dry-run: 모델을 호출하지 않았다" });
   } else {
     // role 모드는 특정 역할을 직접 실행해 봉투를 받는다.
     const prompt = spec.mode === "role" && spec.role
-      ? "Use the " + spec.role + " subagent for this task, then return its full output verbatim including the Handoff Contract envelope. Task: " + String(spec.request)
+      ? "Delegate this task to the " + spec.role + " agent, then return its full output verbatim including the filled Handoff Contract envelope. Task: " + String(spec.request)
       : String(spec.request);
-    const result = spawnSync(
-      "claude",
-      [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        // 역할이 계약대로 문서를 쓸 수 있어야 한다. 쓰기가 거부되면
-        // docs-only 역할이 만들지 못한 파일을 출처로 인용하게 되고,
-        // 하네스가 환경 제약을 계약 위반으로 오판한다.
-        // 대상은 매번 새로 만들고 지우는 임시 디렉터리다.
-        "--permission-mode",
-        "acceptEdits",
-        prompt,
-      ],
-      { cwd: projectDir, encoding: "utf8", input: "", maxBuffer: 64 * 1024 * 1024 }
-    );
+    const invocation = target.command(prompt);
+    const result = spawnSync(invocation.bin, invocation.args, {
+      cwd: projectDir,
+      encoding: "utf8",
+      input: "",
+      maxBuffer: 64 * 1024 * 1024,
+    });
     streamText = String(result.stdout || "") + String(result.stderr || "");
   }
 
-  const observed = observe(streamText, projectDir);
+  const observed = target.observe(streamText, projectDir);
   // 실행이 성립하지 않은 회차를 계약 위반과 분리한다.
   // 이것을 구분하지 않으면 한도 도달이 "위반 없음"으로 거짓 통과하거나
   // 봉투 부재로 거짓 실패한다. 둘 다 하네스를 믿을 수 없게 만든다.
@@ -290,6 +472,29 @@ function runCase(spec, dryRun) {
         expectedFrom: spec.expect.envelope_from || null,
       })
     );
+  } else if (target.observesRoleNames === false) {
+    // 역할 이름을 관찰할 수 없는 타깃에서는 라우팅을 판정하지 않는다.
+    // 신호가 없는데 판정하면 거짓 결과가 나온다.
+    findings.push({
+      check: "routing.not_observable",
+      ok: true,
+      detail: targetName + " 부모 스트림에 역할 이름이 없어 라우팅은 판정하지 않는다 (위임 " + observed.steps + "회)",
+    });
+    findings.push.apply(
+      findings,
+      judge.judgeRun(
+        {
+          rolesSelected: [],
+          undeclaredTools: [],
+          outOfScopeViolations: [],
+          steps: observed.steps,
+          setupErrors: observed.setupErrors || [],
+        },
+        { max_steps: spec.expect.max_steps }
+      ).filter(function (entry) {
+        return entry.check.indexOf("routing.") !== 0;
+      })
+    );
   } else {
     // 라우팅 모드에서는 봉투와 도구를 판정하지 않는다.
     // 부모 스트림에는 서브에이전트 내부 도구가 나타나지 않으므로
@@ -302,6 +507,7 @@ function runCase(spec, dryRun) {
           undeclaredTools: [],
           outOfScopeViolations: [],
           steps: observed.steps,
+          setupErrors: observed.setupErrors || [],
         },
         spec.expect
       )
@@ -328,6 +534,11 @@ function main() {
   const dryRun = Boolean(arg("dry-run", false));
   const runs = Number(arg("runs", 1)) || 1;
   const only = arg("case", null);
+  const targetName = String(arg("target", "claude"));
+  if (!EVAL_TARGETS[targetName]) {
+    console.error(`알 수 없는 타깃: ${targetName} (claude | codex)`);
+    process.exit(1);
+  }
 
   const files = fs.readdirSync(CASES_DIR).filter(function (name) {
     return name.indexOf(".md") !== -1 && (!only || name.indexOf(String(only)) === 0);
@@ -337,8 +548,8 @@ function main() {
     process.exit(1);
   }
 
-  console.log("\n  Agent Workflow Eval" + (dryRun ? " (dry-run)" : "") + "\n");
-  const report = { startedAt: new Date().toISOString(), dryRun, runs, cases: [] };
+  console.log("\n  Agent Workflow Eval [" + targetName + "]" + (dryRun ? " (dry-run)" : "") + "\n");
+  const report = { startedAt: new Date().toISOString(), target: targetName, dryRun, runs, cases: [] };
   let totalChecks = 0;
   let passedChecks = 0;
 
@@ -349,7 +560,7 @@ function main() {
     let validRuns = 0;
     let invalidRuns = 0;
     for (let attempt = 1; attempt <= runs; attempt += 1) {
-      const outcome = runCase(spec, dryRun);
+      const outcome = runCase(spec, dryRun, targetName);
       if (outcome.invalid) {
         invalidRuns += 1;
         caseReport.runs.push({ attempt, invalid: true, reason: outcome.reason });
@@ -393,7 +604,7 @@ function main() {
   if (!dryRun) {
     fs.mkdirSync(HISTORY_DIR, { recursive: true });
     const stamp = report.startedAt.replace(/[:.]/g, "-");
-    const target = path.join(HISTORY_DIR, stamp + ".json");
+    const target = path.join(HISTORY_DIR, stamp + "-" + targetName + ".json");
     fs.writeFileSync(target, JSON.stringify(report, null, 2) + "\n");
     console.log("  기록: " + path.relative(ROOT, target) + "\n");
   }

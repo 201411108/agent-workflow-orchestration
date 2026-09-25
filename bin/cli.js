@@ -547,9 +547,11 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
       lines.push(`${key} = "${escapeTomlBasic(permissions[key])}"`);
     }
     // Codex는 역할별 도구 허용 목록이 없다. 제어 가능한 것은 web_search 뿐이다.
+    // 값은 boolean이 아니라 disabled | cached | indexed | live 중 하나다.
+    // boolean을 쓰면 역할 파일 전체가 malformed로 무시된다 (2026-09-24 실측).
     const codexTools = resolveRoleTools(adapter, role);
     if (codexTools.supported) {
-      lines.push(`web_search = ${codexTools.granted.includes("web_search")}`);
+      lines.push(`web_search = "${codexTools.granted.includes("web_search") ? "live" : "disabled"}"`);
     }
     lines.push('developer_instructions = """', instructions, '"""', "");
     return lines.join("\n");
@@ -2026,6 +2028,17 @@ function validateAdapter(adapter, manifest) {
       }
       if (!/\ndescription = "\S/.test(rendered)) {
         failures.push(`adapter ${adapter.target} render for ${role.name} has an empty TOML description`);
+      }
+      // Codex는 web_search를 열거값으로만 받는다. boolean을 쓰면 역할 파일 전체가
+      // malformed로 무시되고, 설치는 성공한 것처럼 보이면서 역할이 하나도 로드되지 않는다.
+      const webSearch = rendered.match(/\nweb_search = (.+)/);
+      if (webSearch) {
+        const allowed = ['"disabled"', '"cached"', '"indexed"', '"live"'];
+        if (allowed.indexOf(webSearch[1].trim()) === -1) {
+          failures.push(
+            `adapter ${adapter.target} render for ${role.name} has an invalid web_search value: ${webSearch[1].trim()} (expected one of ${allowed.join(", ")})`
+          );
+        }
       }
       // 이스케이프되지 않은 TOML 여러 줄 구분자가 남으면 파싱이 깨진다.
       if ((rendered.match(/(?<!\\)"""/g) || []).length !== 2) {

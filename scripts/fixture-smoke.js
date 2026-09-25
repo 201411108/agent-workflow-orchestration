@@ -128,18 +128,18 @@ function smokeCodex(rootDir) {
   assertIncludes(researcherAgent, 'sandbox_mode = "read-only"');
   // 1.5 도구 바인딩: Codex는 역할별 허용 목록이 없고 web_search만 제어 가능하다.
   // 1.8에서 외부 조사 경계가 analyst로 옮겨갔다. researcher는 저장소 내부만 본다.
-  assertIncludes(researcherAgent, "web_search = false");
+  assertIncludes(researcherAgent, 'web_search = "disabled"');
   const analystAgent = fs.readFileSync(
     path.join(rootDir, ".codex", "agents", "role-analyst.toml"),
     "utf8"
   );
-  assertIncludes(analystAgent, "web_search = true");
+  assertIncludes(analystAgent, 'web_search = "live"');
   assertIncludes(analystAgent, 'sandbox_mode = "read-only"');
   const reviewerAgent = fs.readFileSync(
     path.join(rootDir, ".codex", "agents", "role-reviewer.toml"),
     "utf8"
   );
-  assertIncludes(reviewerAgent, "web_search = false");
+  assertIncludes(reviewerAgent, 'web_search = "disabled"');
   assertIncludes(researcherAgent, "## Tools");
   assertNotIncludes(researcherAgent, "사용 가능:");
   const config = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
