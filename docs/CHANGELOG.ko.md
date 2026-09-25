@@ -6,6 +6,48 @@
 
 ## [Unreleased]
 
+### Added
+
+- 역할 3개 추가: `role-analyst`(외부 근거와 지표), `role-qa`(수용 기준을 실행
+  가능한 테스트로), `role-releaser`(배포와 롤백). 총 10개 역할
+- 역할 선언이 배정을 결정한다. `capabilities`, `produces`, `consumes`,
+  `optionalConsumes`가 고정 라우팅 표를 대체한다
+- 모든 역할이 공유하는 핸드오프 봉투. 출처 있는 사실, 분리된 가정, 차단 질문,
+  필요한 능력, 명시적 범위를 담는다
+- 모든 역할 계약에 `Activation`, `Done Criteria`, `Stop Conditions`
+- 역할별 도구 바인딩을 타깃 네이티브 구문으로 렌더링
+- 동작 검증 하네스(`npm run eval`). 판정기는 모델을 호출하지 않으며
+  `npm run check`에서 매번 자체 검증된다
+- `doctor`가 Codex 프로젝트 trust를 보고한다. 신뢰되지 않은 프로젝트는
+  `.codex/` 레이어 전체를 조용히 건너뛴다
+- `npm run check:package`가 배포 산출물에 제품 파일만 있고 런타임에 필요한
+  파일이 빠지지 않았는지 검사한다
+
+### Changed
+
+- Claude 타깃이 역할을 `.claude/agents/`의 서브에이전트로, 오케스트레이터를
+  스킬로 설치한다. 이전 레이아웃은 `.claude/skills/`에 `CLAUDE.md`를 썼고
+  Claude Code가 그것을 로드하지 않았다
+- Codex가 10개 역할을 모두 배포한다. 이전에는 custom agent 3개만 나갔다
+- 역할 파일을 손으로 쓴 payload 사본이 아니라 manifest와 역할 계약에서 렌더링한다
+- `mutationPolicy`를 타깃 네이티브 권한 키로 매핑하고, 도구 허용 목록을 정책별
+  고정값이 아니라 역할 선언에서 도출한다
+- 배포 패키지에서 개발 문서, 검증 하네스, 저장소 테스트 스크립트를 제외한다
+
+### Fixed
+
+- Claude 타깃이 스킬로 탐색되지 않는 파일을 생성하던 문제
+- `role-reviewer`가 `mutationPolicy: none`인데 `test_runner`를 통해 `Bash`를
+  받아 읽기 전용이 아니던 문제
+- 배포된 역할 파일이 소비자 프로젝트에 존재하지 않는 `Source: skills/role-*.md`
+  경로를 가리켰고 역할이 그것을 근거로 인용하던 문제
+- 기존 cursor 설치본을 갱신할 때 소유권 키 형식이 바뀌어 중단되던 문제
+- 이전 레이아웃의 역할 파일이 고아로 남지 않고 마이그레이션된다
+
+#### 이전 미출시 항목
+
+## [이전 Unreleased]
+
 ### 추가
 
 - 공식 skill, custom agent, config, guidance 경로를 project/global 범위에 설치하는

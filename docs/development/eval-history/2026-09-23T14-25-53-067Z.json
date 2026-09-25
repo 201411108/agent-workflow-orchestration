@@ -1,0 +1,66 @@
+{
+  "startedAt": "2026-09-23T14:25:53.067Z",
+  "dryRun": false,
+  "runs": 5,
+  "cases": [
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 10,
+          "failures": []
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 9,
+          "failures": []
+        },
+        {
+          "attempt": 3,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 14,
+          "failures": []
+        },
+        {
+          "attempt": 4,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 8,
+          "failures": []
+        },
+        {
+          "attempt": 5,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 8,
+          "failures": []
+        }
+      ],
+      "passRate": "5/5",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "50/50"
+}

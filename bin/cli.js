@@ -17,6 +17,31 @@ const {
 const ROOT_DIR = path.join(__dirname, "..");
 const SOURCE_DIR = path.join(ROOT_DIR, "skills");
 const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
+// 모든 역할이 같은 형식으로 반환하는 핸드오프 봉투의 필수 필드.
+// 1.6 검증 하네스가 이 필드들로 계약 준수를 기계 판정한다.
+// D16의 능력 어휘. 역할 계약의 "필요한 것", 핸드오프 needs, 역할 capabilities가
+// 모두 이 어휘를 공유해야 오케스트레이터가 반환된 needs를 역할로 해소할 수 있다.
+const CAPABILITY_VOCABULARY = [
+  "product-intent",
+  "ui-decision",
+  "code-evidence",
+  "external-evidence",
+  "contract-decision",
+  "implementation",
+  "verification",
+  "acceptance-criteria",
+];
+
+const HANDOFF_ENVELOPE_FIELDS = [
+  "from:",
+  "status:",
+  "produced:",
+  "facts_confirmed:",
+  "assumptions:",
+  "blocking_questions:",
+  "needs:",
+  "out_of_scope:",
+];
 const ADAPTERS_DIR = path.join(ROOT_DIR, "adapters");
 const CODEX_PAYLOAD_DIR = path.join(ROOT_DIR, "payloads", "codex");
 const KNOWN_CODEX_V1_LEGACY_HASHES = {
@@ -111,7 +136,30 @@ function writeJson(filePath, value) {
 }
 
 function loadManifest() {
-  return readJson(MANIFEST_PATH);
+  const manifest = readJson(MANIFEST_PATH);
+  // 1.5에서 최상위 키를 skills -> roles로 바꿨다. 구 키를 가진 파일도 읽는다.
+  const legacyRoles = manifest["skills"];
+  const roles = Array.isArray(manifest.roles) ? manifest.roles : legacyRoles;
+  manifest.roles = Array.isArray(roles) ? roles : [];
+  // 1.7에서 handoffInputs/handoffOutputs를 consumes/produces로 바꿨다.
+  // 구 키를 가진 파일도 읽는다.
+  for (const role of manifest.roles) {
+    if (!Array.isArray(role.consumes) && Array.isArray(role["handoffInputs"])) {
+      role.consumes = role["handoffInputs"];
+    }
+    if (!Array.isArray(role.produces) && Array.isArray(role["handoffOutputs"])) {
+      role.produces = role["handoffOutputs"];
+    }
+    if (!Array.isArray(role.capabilities)) {
+      role.capabilities = [];
+    }
+  }
+  if (!Array.isArray(manifest.environmentInputs)) {
+    manifest.environmentInputs = ["user_request", "workflow_state"];
+  }
+  // 외부 소비자를 위한 별칭. 이 파일의 코드는 roles만 쓴다.
+  manifest["skills"] = manifest.roles;
+  return manifest;
 }
 
 function loadAdapter(targetName) {
@@ -280,6 +328,7 @@ function getTargetPaths(adapter, projectRoot = cwd) {
   const configuredPaths = global ? adapter.globalPaths : adapter.projectPaths;
   if (global) {
     return {
+      rolesDir: path.join(scopeRoot, configuredPaths.rolesDir || configuredPaths.skillsDir),
       skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
       agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
       configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
@@ -288,6 +337,7 @@ function getTargetPaths(adapter, projectRoot = cwd) {
     };
   }
   return {
+    rolesDir: path.join(scopeRoot, configuredPaths.rolesDir || configuredPaths.skillsDir),
     skillsDir: path.join(scopeRoot, configuredPaths.skillsDir),
     agentsDir: configuredPaths.agentsDir ? path.join(scopeRoot, configuredPaths.agentsDir) : null,
     configFile: configuredPaths.configFile ? path.join(scopeRoot, configuredPaths.configFile) : null,
@@ -370,34 +420,187 @@ function parseSkill(skillName) {
   };
 }
 
+function readFrontmatterField(frontmatter, field) {
+  const lines = frontmatter.split("\n");
+  const startIndex = lines.findIndex((line) => line.startsWith(`${field}:`));
+  if (startIndex === -1) {
+    return "";
+  }
+  const inlineValue = lines[startIndex].slice(field.length + 1).trim();
+  if (inlineValue && inlineValue !== ">-" && inlineValue !== ">" && inlineValue !== "|") {
+    return inlineValue;
+  }
+  const collected = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (!/^\s/.test(lines[index]) || lines[index].trim() === "") {
+      break;
+    }
+    collected.push(lines[index].trim());
+  }
+  return collected.join(" ");
+}
+
+// 역할이 선언한 추상 도구를 타깃의 실제 도구로 해석한다.
+// 매핑이 없는 도구는 unavailable로 분리해 조건문 대신 사실로 렌더링한다.
+function resolveRoleTools(adapter, role) {
+  const declared = [...(role.requiredTools || []), ...(role.optionalTools || [])];
+  if (!adapter.tools) {
+    return { supported: false, granted: [], unavailable: [], declared };
+  }
+  const granted = [];
+  const unavailable = [];
+  for (const abstractName of declared) {
+    const native = adapter.tools[abstractName];
+    if (!native) {
+      unavailable.push(abstractName);
+      continue;
+    }
+    for (const piece of String(native).split(",").map((part) => part.trim()).filter(Boolean)) {
+      if (!granted.includes(piece)) {
+        granted.push(piece);
+      }
+    }
+  }
+  return { supported: true, granted, unavailable, declared };
+}
+
+function renderToolsSection(adapter, role) {
+  const resolved = resolveRoleTools(adapter, role);
+  if (!resolved.supported) {
+    return [];
+  }
+  const required = new Set(role.requiredTools || []);
+  const rows = resolved.declared.map((abstractName) => {
+    const native = adapter.tools[abstractName];
+    return `| \`${abstractName}\` | ${native || "없음"} | ${
+      required.has(abstractName) ? "필수" : "선택"
+    } |`;
+  });
+  return [
+    "## Tools",
+    "",
+    `도구 정책: \`${role.toolPolicy || "deny-by-default"}\`. 아래 표에 없는 도구는 쓰지 않는다.`,
+    "매핑이 \"없음\"인 항목은 이 타깃에 대응 수단이 없다는 뜻이며, `## Fallback Rules`를 따른다.",
+    "",
+    "| 계약상 도구 | 이 타깃의 도구 | 구분 |",
+    "|-------------|----------------|------|",
+    ...rows,
+    "",
+  ];
+}
+
+function getRolePermissions(adapter, mutationPolicy) {
+  const table = adapter.permissions || {};
+  return table[mutationPolicy] || {};
+}
+
+function renderContractSummary(role) {
+  // capabilities / produces / consumes는 오케스트레이터가 의존성 해소로 배정할 때
+  // 읽는 선언이다. 배포 파일에 실려 있지 않으면 1.7의 디스패치가 성립하지 않는다.
+  return [
+    "## Contract Summary",
+    "",
+    `- mutation_policy: ${role.mutationPolicy}`,
+    `- capabilities: ${(role.capabilities || []).join(", ") || "없음"}`,
+    `- produces: ${(role.produces || []).join(", ") || "없음"}`,
+    `- consumes: ${(role.consumes || []).join(", ") || "없음"} (전제)`,
+    `- optional_consumes: ${(role.optionalConsumes || []).join(", ") || "없음"} (있으면 사용)`,
+    `- required_outputs: ${role.requiredOutputs.join(", ")}`,
+    `- required_tools: ${role.requiredTools.join(", ")}`,
+    `- optional_tools: ${role.optionalTools.join(", ")}`,
+    "",
+  ];
+}
+
+function escapeTomlBasic(value) {
+  return value.split("\\").join("\\\\").split('"').join('\\"');
+}
+
 function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
   const specsRoot = workflow.specsRoot.split(path.sep).join("/");
   const replaceSpecsRoot = (contents) => contents.split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`).join(specsRoot);
-  if (adapter.target === "cursor") {
+
+  const format = adapter.roleFormat || "passthrough";
+  if (format === "passthrough") {
     return replaceSpecsRoot(parsed.raw);
   }
 
   const manifest = loadManifest();
-  const role = manifest.skills.find((entry) => entry.name === skillName);
-  const title = role ? role.name : skillName;
-  const requiredOutputs = role ? role.requiredOutputs.join(", ") : "";
-  const requiredTools = role ? role.requiredTools.join(", ") : "";
-  const optionalTools = role ? role.optionalTools.join(", ") : "";
-  const headerLabel = adapter.fileName === "CLAUDE.md" ? "Claude Role Contract" : "Codex Role Contract";
+  const role = manifest.roles.find((entry) => entry.name === skillName);
+  if (!role) {
+    throw new Error(`role not found in manifest: ${skillName}`);
+  }
+  const description = readFrontmatterField(parsed.frontmatter, "description");
+  const permissions = getRolePermissions(adapter, role.mutationPolicy);
 
-  return replaceSpecsRoot([
-    `# ${headerLabel}: ${title}`,
+  if (format === "toml") {
+    const instructions = replaceSpecsRoot(
+      [...renderContractSummary(role), ...renderToolsSection(adapter, role), parsed.body].join("\n")
+    ).split('"""').join('\\"\\"\\"');
+    const lines = [
+      `name = "${escapeTomlBasic(role.name)}"`,
+      `description = "${escapeTomlBasic(description)}"`,
+    ];
+    for (const key of Object.keys(permissions)) {
+      lines.push(`${key} = "${escapeTomlBasic(permissions[key])}"`);
+    }
+    // Codex는 역할별 도구 허용 목록이 없다. 제어 가능한 것은 web_search 뿐이다.
+    const codexTools = resolveRoleTools(adapter, role);
+    if (codexTools.supported) {
+      lines.push(`web_search = ${codexTools.granted.includes("web_search")}`);
+    }
+    lines.push('developer_instructions = """', instructions, '"""', "");
+    return lines.join("\n");
+  }
+
+  // markdown-frontmatter (Claude subagent)
+  const frontmatterLines = [`name: ${role.name}`, `description: ${description}`];
+  for (const key of Object.keys(permissions)) {
+    frontmatterLines.push(`${key}: ${permissions[key]}`);
+  }
+  // toolPolicy: deny-by-default. 허용 목록은 역할 선언에서 도출한다.
+  const resolvedTools = resolveRoleTools(adapter, role);
+  if (resolvedTools.supported && resolvedTools.granted.length > 0) {
+    frontmatterLines.push(`tools: ${resolvedTools.granted.join(", ")}`);
+  }
+  return replaceSpecsRoot(
+    [
+      "---",
+      ...frontmatterLines,
+      "---",
+      "",
+      `# ${adapter.label}: ${role.name}`,
+      "",
+      `Contract: ${loadManifest().name} · ${skillName} (패키지 제공, 이 프로젝트의 파일 아님)`,
+      "",
+      ...renderContractSummary(role),
+      ...renderToolsSection(adapter, role),
+      parsed.body,
+    ].join("\n")
+  );
+}
+
+function renderLegacyCodexRoleFile(skillName, projectRoot = cwd) {
+  // 1.0.x가 생성한 .codex/skills/<role>/AGENT.md의 렌더링을 그대로 보존한다.
+  // 레거시 소유권 증명에만 쓰이며 새 배포에는 사용하지 않는다.
+  const parsed = parseSkill(skillName);
+  const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
+  const specsRoot = workflow.specsRoot.split(path.sep).join("/");
+  const role = loadManifest().roles.find((entry) => entry.name === skillName);
+  const title = role ? role.name : skillName;
+  return [
+    `# Codex Role Contract: ${title}`,
     "",
-    `Target: ${adapter.label}`,
-    `Source: skills/${skillName}/SKILL.md`,
+    "Target: Codex Adapter",
+    `Contract: ${loadManifest().name} · ${skillName} (패키지 제공, 이 프로젝트의 파일 아님)`,
     "",
     "## Contract Summary",
     "",
-    `- required_outputs: ${requiredOutputs}`,
-    `- required_tools: ${requiredTools}`,
-    `- optional_tools: ${optionalTools}`,
+    `- required_outputs: ${role ? role.requiredOutputs.join(", ") : ""}`,
+    `- required_tools: ${role ? role.requiredTools.join(", ") : ""}`,
+    `- optional_tools: ${role ? role.optionalTools.join(", ") : ""}`,
     "",
     "## Source Frontmatter",
     "",
@@ -406,41 +609,129 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
     "```",
     "",
     parsed.body,
-  ].join("\n"));
+  ]
+    .join("\n")
+    .split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`)
+    .join(specsRoot);
+}
+
+// 오케스트레이터는 전체 역할의 선언을 읽어 배정한다. 자기 선언만으로는
+// 의존성 해소가 불가능하므로 명부를 렌더링에 주입한다.
+// 이것은 "요청 유형 -> 역할 순서" 표가 아니라 역할이 무엇을 할 수 있고
+// 무엇을 필요로 하는지의 선언이다.
+function renderRoleRoster(manifest, orchestratorName) {
+  const rows = manifest.roles
+    .filter(function (role) {
+      return role.name !== orchestratorName;
+    })
+    .map(function (role) {
+      return [
+        "| `" + role.name + "`",
+        (role.capabilities || []).join(", ") || "-",
+        (role.produces || []).join(", ") || "-",
+        (role.consumes || []).join(", ") || "-",
+        (role.optionalConsumes || []).join(", ") || "-",
+        role.mutationPolicy + " |",
+      ].join(" | ");
+    });
+  return [
+    "## Role Roster",
+    "",
+    "배정은 이 선언에서 계산한다. 아래는 역할이 무엇을 할 수 있고 무엇을 필요로 하는지이며,",
+    "요청 유형을 역할 순서로 바꾸는 표가 아니다.",
+    "",
+    "`consumes`는 배정 전에 충족되어야 하는 전제다. `optional`은 있으면 쓰고 없어도 배정된다.",
+    "",
+    "| 역할 | capabilities | produces | consumes (전제) | optional (있으면 사용) | mutation_policy |",
+    "|------|--------------|----------|-----------------|------------------------|-----------------|",
+    ...rows,
+    "",
+    "환경 입력(생산자가 필요 없는 키): " +
+      (manifest.environmentInputs || []).map(function (key) { return "`" + key + "`"; }).join(", "),
+    "",
+  ];
+}
+
+function renderOrchestratorSkillFile(adapter, skillName, projectRoot = cwd) {
+  const parsed = parseSkill(skillName);
+  const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
+  const specsRoot = workflow.specsRoot.split(path.sep).join("/");
+  const role = loadManifest().roles.find((entry) => entry.name === skillName);
+  const description = readFrontmatterField(parsed.frontmatter, "description");
+  return [
+    "---",
+    `name: ${skillName}`,
+    `description: ${description}`,
+    "---",
+    "",
+    `# ${adapter.label}: ${skillName}`,
+    "",
+    `Contract: ${loadManifest().name} · ${skillName} (패키지 제공, 이 프로젝트의 파일 아님)`,
+    "",
+    ...(role ? renderContractSummary(role) : []),
+    ...renderRoleRoster(loadManifest(), skillName),
+    parsed.body,
+  ]
+    .join("\n")
+    .split(`${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`)
+    .join(specsRoot);
+}
+
+function getOrchestratorRoleName() {
+  const manifest = loadManifest();
+  const found = manifest.roles.find((entry) => entry.name.endsWith("orchestrator"));
+  return found ? found.name : null;
 }
 
 function getManagedRoleFiles(adapter, projectRoot = cwd) {
   const paths = getTargetPaths(adapter, projectRoot);
-  if (adapter.target === "codex") {
-    const payloads = [
-      {
-        roleName: "feature-orchestrator",
-        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md"),
-        filePath: path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"),
-      },
-      ...["planner", "designer", "developer"].map((roleName) => ({
-        roleName,
-        sourcePath: path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`),
-        filePath: path.join(paths.agentsDir, `${roleName}.toml`),
-      })),
-    ];
-    const scopeRoot = global ? os.homedir() : projectRoot;
-    return payloads.map((entry) => ({
-      roleName: entry.roleName,
-      relativePath: getProjectRelativePath(entry.filePath, scopeRoot),
-      filePath: entry.filePath,
-      contents: readText(entry.sourcePath),
-    }));
-  }
-  return loadManifest().skills.map((role) => {
-    const relativePath = path.join(role.name, adapter.fileName);
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const orchestrator = getOrchestratorRoleName();
+  const rolePattern = adapter.roleFilePattern || `{role}/${adapter.fileName}`;
+  const skillPattern = adapter.skillFilePattern || `{role}/SKILL.md`;
+
+  return loadManifest().roles.map((role) => {
+    const isOrchestratorSkill = adapter.orchestratorAs === "skill" && role.name === orchestrator;
+    const baseDir = isOrchestratorSkill ? paths.skillsDir : paths.rolesDir;
+    const pattern = isOrchestratorSkill ? skillPattern : rolePattern;
+    const relativePath = pattern.split("{role}").join(role.name);
+    const filePath = path.join(baseDir, ...relativePath.split("/"));
+    const contents = isOrchestratorSkill
+      ? renderOrchestratorSkillFile(adapter, role.name, projectRoot)
+      : renderTargetRoleFile(adapter, role.name, projectRoot);
+    // 1.1.0은 cursor/claude 역할을 `<role>/<fileName>` 키로 기록했다.
+    // 1.2.0에서 키가 프로젝트 상대 경로로 바뀌었으므로 구 키를 후보로 남긴다.
+    // 이것이 없으면 기존 설치본의 소유권 증명이 전부 실패한다.
+    const legacyRelativePaths = [];
+    if (adapter.fileName) {
+      legacyRelativePaths.push(path.join(role.name, adapter.fileName));
+    }
     return {
       roleName: role.name,
-      relativePath,
-      filePath: path.join(paths.skillsDir, relativePath),
-      contents: renderTargetRoleFile(adapter, role.name, projectRoot),
+      relativePath: getProjectRelativePath(filePath, scopeRoot),
+      legacyRelativePaths,
+      filePath,
+      contents,
     };
   });
+}
+
+// 구버전 키까지 훑어 기록된 해시를 찾는다.
+function findRecordedHash(recordedFiles, managedFile, exists) {
+  if (recordedFiles[managedFile.relativePath]) {
+    return recordedFiles[managedFile.relativePath];
+  }
+  // 파일이 새 경로에 없으면 구 키를 보지 않는다. 그것은 경로 이동이며
+  // 소유권 위반이 아니다. 구 경로의 파일은 레거시 계획이 따로 처리한다.
+  if (!exists) {
+    return null;
+  }
+  for (const legacyPath of managedFile.legacyRelativePaths || []) {
+    if (recordedFiles[legacyPath]) {
+      return recordedFiles[legacyPath];
+    }
+  }
+  return null;
 }
 
 function getTargetState(state, targetName) {
@@ -493,8 +784,8 @@ function findManagedFileConflicts(managedFiles, targetState) {
   const recordedFiles = targetState && targetState.files ? targetState.files : {};
   const conflicts = [];
   for (const managedFile of managedFiles) {
-    const recordedHash = recordedFiles[managedFile.relativePath];
     const exists = fs.existsSync(managedFile.filePath);
+    const recordedHash = findRecordedHash(recordedFiles, managedFile, exists);
     const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
     if (!recordedHash && !exists) {
       continue;
@@ -604,7 +895,7 @@ function findCodexManagedConflicts(managedFiles, targetState, action) {
   for (const managedFile of managedFiles) {
     const exists = fs.existsSync(managedFile.filePath);
     const currentHash = exists ? sha256(fs.readFileSync(managedFile.filePath)) : null;
-    const recordedHash = recordedFiles[managedFile.relativePath];
+    const recordedHash = findRecordedHash(recordedFiles, managedFile, exists);
     const desiredHash = sha256(managedFile.contents);
     if (!exists && !recordedHash) {
       continue;
@@ -626,20 +917,63 @@ function findCodexManagedConflicts(managedFiles, targetState, action) {
   return conflicts;
 }
 
+// 어댑터의 legacyRolePaths에 남은 구버전 배포 파일을 찾는다.
+// 기록된 해시로 소유권이 증명될 때만 제거 대상이고, 그 외에는 충돌로 보고한다.
+// 사용자가 손댔을 수 있는 파일을 임의로 지우지 않는다.
+function getLegacyRolePlan(adapter, targetState, projectRoot = cwd) {
+  const entries = adapter.legacyRolePaths || [];
+  const removable = [];
+  const conflicts = [];
+  if (entries.length === 0) {
+    return { removable, conflicts };
+  }
+  const scopeRoot = global ? os.homedir() : projectRoot;
+  const recordedFiles = (targetState && targetState.files) || {};
+  const roleNames = loadManifest().roles.map((role) => role.name);
+
+  for (const entry of entries) {
+    const patterns = entry.pattern.includes("{role}")
+      ? roleNames.map((roleName) => entry.pattern.split("{role}").join(roleName))
+      : [entry.pattern];
+    for (const relativePattern of patterns) {
+      const filePath = path.join(scopeRoot, ...entry.dir.split("/"), ...relativePattern.split("/"));
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      const currentHash = sha256(fs.readFileSync(filePath));
+      const candidateKeys = [
+        getProjectRelativePath(filePath, scopeRoot),
+        relativePattern,
+        path.join(entry.dir, relativePattern),
+      ];
+      const proven = candidateKeys.some((key) => recordedFiles[key] && recordedFiles[key] === currentHash);
+      if (proven) {
+        removable.push({ relativePath: getProjectRelativePath(filePath, scopeRoot), filePath });
+      } else {
+        conflicts.push({
+          filePath,
+          reason: "legacy role file ownership cannot be proven; review and remove it manually",
+        });
+      }
+    }
+  }
+  return { removable, conflicts };
+}
+
+function removeLegacyRoleFiles(plan) {
+  for (const legacyFile of plan.removable) {
+    fs.rmSync(legacyFile.filePath, { force: true });
+    removeDirIfEmpty(path.dirname(legacyFile.filePath));
+  }
+}
+
 function getLegacyCodexPlan(targetState, projectRoot = cwd) {
   const scopeRoot = global ? os.homedir() : projectRoot;
   const legacySkillsDir = path.join(scopeRoot, ".codex", "skills");
   const recordedFiles = (targetState && targetState.files) || {};
-  const legacyAdapter = {
-    target: "codex",
-    label: "Codex Adapter",
-    fileName: "AGENT.md",
-    projectPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
-    globalPaths: { skillsDir: ".codex/skills", specsDir: ".agent-workflow/specs" },
-  };
   const removable = [];
   const conflicts = [];
-  for (const role of loadManifest().skills) {
+  for (const role of loadManifest().roles) {
     const relativePath = path.join(role.name, "AGENT.md");
     const filePath = path.join(legacySkillsDir, relativePath);
     if (!fs.existsSync(filePath)) {
@@ -647,7 +981,7 @@ function getLegacyCodexPlan(targetState, projectRoot = cwd) {
     }
     const currentHash = sha256(fs.readFileSync(filePath));
     const recordedHash = recordedFiles[relativePath];
-    const expectedHash = sha256(renderTargetRoleFile(legacyAdapter, role.name, projectRoot));
+    const expectedHash = sha256(renderLegacyCodexRoleFile(role.name, projectRoot));
     const knownV1Hash = KNOWN_CODEX_V1_LEGACY_HASHES[relativePath];
     if ((recordedHash && currentHash === recordedHash) || currentHash === expectedHash || currentHash === knownV1Hash) {
       removable.push({ roleName: role.name, relativePath, filePath });
@@ -741,7 +1075,7 @@ function install() {
 
   for (const managedFile of managedFiles) {
     if (fs.existsSync(managedFile.filePath) && !force) {
-      console.log(`  [skip] ${managedFile.roleName} (${adapter.fileName} already exists)`);
+      console.log(`  [skip] ${managedFile.roleName} (${managedFile.relativePath} already exists)`);
       skipped++;
       continue;
     }
@@ -796,18 +1130,20 @@ function update() {
       conflicts.push(...findCodexManagedConflicts(managedFiles, targetState, "update"));
       const legacyPlan = getLegacyCodexPlan(targetState);
       conflicts.push(...legacyPlan.conflicts);
+      const legacyRolePlan = getLegacyRolePlan(adapter, targetState);
       let sharedPlan;
       try {
         sharedPlan = getCodexSharedPlan(getTargetPaths(adapter), targetState, "update");
       } catch (error) {
         conflicts.push({ filePath: getTargetPaths(adapter).configFile, reason: error.message });
       }
-      batches.push({ adapter, managedFiles, sharedPlan, legacyPlan });
-    } else if (!force) {
-      conflicts.push(...findManagedFileConflicts(managedFiles, getTargetState(state, targetName)));
-      batches.push({ adapter, managedFiles });
+      batches.push({ adapter, managedFiles, sharedPlan, legacyPlan, legacyRolePlan });
     } else {
-      batches.push({ adapter, managedFiles });
+      const targetState = getTargetState(state, targetName);
+      if (!force) {
+        conflicts.push(...findManagedFileConflicts(managedFiles, targetState));
+      }
+      batches.push({ adapter, managedFiles, legacyRolePlan: getLegacyRolePlan(adapter, targetState) });
     }
   }
 
@@ -830,6 +1166,11 @@ function update() {
     removeLegacyCodexFiles(batch.legacyPlan);
   }
   for (const batch of batches) {
+    if (batch.legacyRolePlan) {
+      removeLegacyRoleFiles(batch.legacyRolePlan);
+    }
+  }
+  for (const batch of batches) {
     setTargetState(
       state,
       batch.adapter.target,
@@ -840,6 +1181,16 @@ function update() {
     console.log(`  [updated] ${batch.adapter.target}: ${batch.managedFiles.length} role file(s)`);
     if (batch.legacyPlan && batch.legacyPlan.removable.length > 0) {
       console.log(`  [migrated] codex: ${batch.legacyPlan.removable.length} legacy role file(s) removed`);
+    }
+    if (batch.legacyRolePlan && batch.legacyRolePlan.removable.length > 0) {
+      console.log(
+        `  [migrated] ${batch.adapter.target}: ${batch.legacyRolePlan.removable.length} legacy role file(s) removed`
+      );
+    }
+    // 소유권이 증명되지 않은 구 파일은 지우지 않고 경로만 알린다.
+    // 이미 로드되지 않는 파일이므로 갱신 전체를 막을 이유가 없다.
+    for (const leftover of (batch.legacyRolePlan && batch.legacyRolePlan.conflicts) || []) {
+      console.log(`  [kept] ${path.relative(cwd, leftover.filePath)} (${leftover.reason})`);
     }
   }
   saveInstallState(state);
@@ -882,6 +1233,18 @@ function uninstall() {
     }
   }
 
+  // 구 경로에 남은 패키지 소유 파일도 함께 정리한다.
+  // 증명되지 않은 파일은 남기고 경로만 알린다.
+  const legacyRolePlan = getLegacyRolePlan(adapter, targetState);
+  removeLegacyRoleFiles(legacyRolePlan);
+  if (legacyRolePlan.removable.length > 0) {
+    console.log(`  [removed] ${legacyRolePlan.removable.length} legacy role file(s)`);
+  }
+  for (const leftover of legacyRolePlan.conflicts) {
+    console.log(`  [kept] ${path.relative(cwd, leftover.filePath)} (${leftover.reason})`);
+  }
+
+  removeDirIfEmpty(paths.rolesDir);
   removeDirIfEmpty(paths.skillsDir);
   removeTargetState(state, adapter.target);
 
@@ -953,26 +1316,18 @@ function list() {
   for (const adapter of adapters) {
     const projectPaths = getTargetPaths(adapter);
     console.log(`  [${adapter.target}] ${adapter.label}`);
-    console.log(`    skills: ${projectPaths.skillsDir}`);
+    console.log(`    roles: ${projectPaths.rolesDir}`);
+    if (projectPaths.skillsDir !== projectPaths.rolesDir) {
+      console.log(`    skills: ${projectPaths.skillsDir}`);
+    }
     console.log(`    specs: ${projectPaths.specsDir}`);
+    for (const managedFile of getManagedRoleFiles(adapter)) {
+      const status = fs.existsSync(managedFile.filePath) ? "installed" : "-";
+      console.log(`    ${managedFile.roleName} (${status})`);
+    }
     if (adapter.target === "codex") {
-      console.log(
-        `    feature-orchestrator (${fs.existsSync(path.join(projectPaths.skillsDir, "feature-orchestrator", "SKILL.md")) ? "installed" : "-"})`
-      );
-      for (const roleName of ["planner", "designer", "developer"]) {
-        console.log(
-          `    ${roleName} (${fs.existsSync(path.join(projectPaths.agentsDir, `${roleName}.toml`)) ? "installed" : "-"})`
-        );
-      }
       console.log(`    config: ${projectPaths.configFile}`);
       console.log(`    guidance: ${projectPaths.guidanceFile}`);
-      console.log();
-      continue;
-    }
-    for (const role of manifest.skills) {
-      const roleFile = path.join(projectPaths.skillsDir, role.name, adapter.fileName);
-      const status = fs.existsSync(roleFile) ? "installed" : "-";
-      console.log(`    ${role.name} (${status})`);
     }
     console.log();
   }
@@ -1231,7 +1586,7 @@ function normalizeNextRole(value, fallback) {
   if (value === "none") {
     return null;
   }
-  if (!loadManifest().skills.some((entry) => entry.name === value)) {
+  if (!loadManifest().roles.some((entry) => entry.name === value)) {
     fail(`Unknown next role: ${value}`);
   }
   return value;
@@ -1324,7 +1679,7 @@ function advance() {
     console.error(`  Invalid --status. Supported statuses: ${WORK_STATUSES.join(", ")}`);
     process.exit(1);
   }
-  if (selectedRole && !loadManifest().skills.some((entry) => entry.name === selectedRole)) {
+  if (selectedRole && !loadManifest().roles.some((entry) => entry.name === selectedRole)) {
     console.error(`  Unknown role: ${selectedRole}`);
     process.exit(1);
   }
@@ -1383,6 +1738,97 @@ function resume() {
   console.log(`  - ${path.relative(cwd, path.join(itemDir, "verification.md"))}\n`);
 }
 
+// 역할 의존성 그래프. 간선은 consumes(전제)로만 만든다.
+// optionalConsumes는 없어도 배정되므로 교착을 만들지 않는다.
+function buildRoleGraph(manifest) {
+  const environmentInputs = manifest.environmentInputs || [];
+  const producers = new Map();
+  for (const role of manifest.roles) {
+    for (const key of role.produces || []) {
+      if (!producers.has(key)) {
+        producers.set(key, []);
+      }
+      producers.get(key).push(role.name);
+    }
+  }
+  const edges = new Map();
+  for (const role of manifest.roles) {
+    const upstream = new Set();
+    for (const key of role.consumes || []) {
+      if (environmentInputs.includes(key)) {
+        continue;
+      }
+      for (const producer of producers.get(key) || []) {
+        if (producer !== role.name) {
+          upstream.add(producer);
+        }
+      }
+    }
+    edges.set(role.name, Array.from(upstream));
+  }
+  return { edges, producers, environmentInputs };
+}
+
+// 필수 간선에 순환이 있으면 관련 역할이 영원히 배정되지 않는다.
+function findGraphCycles(edges) {
+  const state = new Map();
+  const stack = [];
+  const cycles = [];
+  function visit(name) {
+    if (state.get(name) === "done") {
+      return;
+    }
+    if (state.get(name) === "open") {
+      const start = stack.indexOf(name);
+      cycles.push(stack.slice(start).concat(name).join(" <- "));
+      return;
+    }
+    state.set(name, "open");
+    stack.push(name);
+    for (const upstream of edges.get(name) || []) {
+      visit(upstream);
+    }
+    stack.pop();
+    state.set(name, "done");
+  }
+  for (const name of edges.keys()) {
+    visit(name);
+  }
+  return cycles;
+}
+
+// 환경 입력에서 출발해 고정점까지 배정 가능한 역할을 넓힌다.
+// 끝까지 들어오지 못한 역할은 어떤 경로로도 배정되지 않는다.
+function findDispatchOrder(manifest) {
+  const environmentInputs = manifest.environmentInputs || [];
+  const available = new Set(environmentInputs);
+  const order = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const role of manifest.roles) {
+      if (order.includes(role.name)) {
+        continue;
+      }
+      const ready = (role.consumes || []).every(function (key) {
+        return available.has(key);
+      });
+      if (!ready) {
+        continue;
+      }
+      order.push(role.name);
+      for (const key of role.produces || []) {
+        available.add(key);
+      }
+      changed = true;
+    }
+  }
+  const unreachable = manifest.roles
+    .map(function (role) { return role.name; })
+    .filter(function (name) { return !order.includes(name); });
+  return { order, unreachable };
+}
+
 function validateSkill(skillName, manifestEntry) {
   const skillFile = path.join(SOURCE_DIR, skillName, "SKILL.md");
   const failures = [];
@@ -1401,11 +1847,45 @@ function validateSkill(skillName, manifestEntry) {
     "fallbacks:",
     "## Inputs",
     "## Outputs",
+    // 역할이 언제 시작하고 언제 끝나고 언제 멈추는지를 계약에 강제한다.
+    // 자율 실행에서 가장 큰 실패 모드는 멈춤이 아니라 잘못된 방향으로 오래 달리는 것이다.
+    "## Activation",
+    "## Done Criteria",
+    "## Stop Conditions",
+    "## Handoff Contract",
+    ...HANDOFF_ENVELOPE_FIELDS,
   ];
 
   for (const token of requiredTokens) {
     if (!contents.includes(token)) {
       failures.push(`skills/${skillName}/SKILL.md missing token: ${token}`);
+    }
+  }
+
+  if (!contents.includes(`from: ${skillName}`)) {
+    failures.push(`skills/${skillName}/SKILL.md handoff envelope must declare from: ${skillName}`);
+  }
+
+  // D2/1.7: 고정 라우팅 표가 계약에 다시 스며드는 것을 막는다.
+  // "role-a -> role-b" 같은 체인 표기가 있으면 의존성 해소가 아니라 표가 된다.
+  const chainPattern = /role-[a-z]+\s*(->|→)\s*role-[a-z]+/;
+  if (chainPattern.test(contents)) {
+    failures.push(
+      `skills/${skillName}/SKILL.md contains a hardcoded role chain; dispatch must be computed from declarations (D2)`
+    );
+  }
+
+  // D16: 역할은 다음 역할을 지명하지 않는다. 막힌 조건과 필요한 능력만 기술하고
+  // 배정은 오케스트레이터가 한다. 고정 라우팅이 계약에 다시 스며드는 것을 막는다.
+  const stopSection = contents.match(/## Stop Conditions\n[\s\S]*?(?=\n## |$)/);
+  if (stopSection) {
+    const namedRoles = Array.from(new Set(stopSection[0].match(/role-[a-z]+/g) || [])).filter(
+      (name) => name !== skillName
+    );
+    for (const namedRole of namedRoles) {
+      failures.push(
+        `skills/${skillName}/SKILL.md Stop Conditions names another role (${namedRole}); describe the needed capability instead`
+      );
     }
   }
 
@@ -1429,28 +1909,66 @@ function validateSkill(skillName, manifestEntry) {
 function validateAdapter(adapter, manifest) {
   const failures = [];
 
-  if (!adapter.fileName || !adapter.projectPaths || !adapter.projectPaths.skillsDir || !adapter.projectPaths.specsDir) {
-    failures.push(`adapter ${adapter.target} is missing required path metadata`);
+  for (const field of ["roleFilePattern", "roleFormat", "permissions"]) {
+    if (!adapter[field]) {
+      failures.push(`adapter ${adapter.target} is missing ${field}`);
+    }
   }
-  if (adapter.target === "codex") {
-    for (const scopeName of ["projectPaths", "globalPaths"]) {
-      for (const field of ["skillsDir", "agentsDir", "configFile", "guidanceFile"]) {
-        if (!adapter[scopeName] || !adapter[scopeName][field]) {
-          failures.push(`adapter codex ${scopeName} is missing ${field}`);
+  for (const scopeName of ["projectPaths", "globalPaths"]) {
+    for (const field of ["rolesDir", "skillsDir", "specsDir"]) {
+      if (!adapter[scopeName] || !adapter[scopeName][field]) {
+        failures.push(`adapter ${adapter.target} ${scopeName} is missing ${field}`);
+      }
+    }
+  }
+  for (const policy of ["none", "docs-only", "implementation"]) {
+    if (!adapter.permissions || !adapter.permissions[policy]) {
+      failures.push(`adapter ${adapter.target} has no permission mapping for ${policy}`);
+    }
+  }
+
+  // 도구 바인딩: 매핑을 선언했으면 manifest의 모든 추상 도구가 키로 있어야 한다.
+  // 매핑하지 않기로 했다면 그 사실과 이유를 남긴다. 조용한 누락을 허용하지 않는다.
+  const declaredTools = new Set();
+  for (const role of manifest.roles) {
+    for (const toolName of [...(role.requiredTools || []), ...(role.optionalTools || [])]) {
+      declaredTools.add(toolName);
+    }
+  }
+  if (adapter.tools) {
+    for (const toolName of declaredTools) {
+      if (!Object.prototype.hasOwnProperty.call(adapter.tools, toolName)) {
+        failures.push(`adapter ${adapter.target} has no tool mapping entry for ${toolName}`);
+      }
+    }
+    for (const toolName of Object.keys(adapter.tools)) {
+      if (!declaredTools.has(toolName)) {
+        failures.push(`adapter ${adapter.target} maps an unknown tool: ${toolName}`);
+      }
+    }
+  } else if (!adapter.toolBindingNote) {
+    failures.push(`adapter ${adapter.target} declares no tool mapping and no toolBindingNote explaining why`);
+  }
+
+  // mutationPolicy: none은 저장소를 바꿀 수 없다는 보장이다. 쓰기 가능한 네이티브
+  // 도구가 하나라도 붙으면 그 보장이 깨진다. Bash 한 줄이면 무엇이든 쓸 수 있다.
+  if (adapter.tools && Array.isArray(adapter.writeCapableTools)) {
+    for (const role of manifest.roles.filter((entry) => entry.mutationPolicy === "none")) {
+      const resolved = resolveRoleTools(adapter, role);
+      for (const granted of resolved.granted) {
+        if (adapter.writeCapableTools.includes(granted)) {
+          failures.push(
+            `adapter ${adapter.target} grants write-capable tool ${granted} to ${role.name} (mutationPolicy: none)`
+          );
         }
       }
     }
-    const skillPath = path.join(CODEX_PAYLOAD_DIR, ".agents", "skills", "feature-orchestrator", "SKILL.md");
-    const skillContents = fs.existsSync(skillPath) ? readText(skillPath) : "";
-    if (!/^---\n[\s\S]*?name:\s*feature-orchestrator\n[\s\S]*?description:\s*>-/m.test(skillContents)) {
-      failures.push("Codex feature-orchestrator payload has invalid or incomplete frontmatter");
-    }
-    for (const roleName of ["planner", "designer", "developer"]) {
-      const agentPath = path.join(CODEX_PAYLOAD_DIR, ".codex", "agents", `${roleName}.toml`);
-      const contents = fs.existsSync(agentPath) ? readText(agentPath) : "";
-      for (const token of [`name = "${roleName}"`, "description =", "developer_instructions ="]) {
-        if (!contents.includes(token)) {
-          failures.push(`Codex ${roleName}.toml is missing ${token}`);
+  }
+  if (adapter.target === "codex") {
+    for (const field of ["agentsDir", "configFile", "guidanceFile"]) {
+      for (const scopeName of ["projectPaths", "globalPaths"]) {
+        if (!adapter[scopeName] || !adapter[scopeName][field]) {
+          failures.push(`adapter codex ${scopeName} is missing ${field}`);
         }
       }
     }
@@ -1459,26 +1977,96 @@ function validateAdapter(adapter, manifest) {
     } catch (error) {
       failures.push(`Codex config payload is invalid: ${error.message}`);
     }
+    const guidanceBlock = readText(path.join(CODEX_PAYLOAD_DIR, "AGENTS.block.md"));
+    for (const role of manifest.roles) {
+      if (!guidanceBlock.includes(role.name)) {
+        failures.push(`Codex AGENTS block does not mention role: ${role.name}`);
+      }
+    }
+  }
+  if (failures.length > 0) {
     return failures;
   }
 
-  for (const role of manifest.skills) {
-    const rendered = renderTargetRoleFile(adapter, role.name);
+  const orchestrator = manifest.roles.find((entry) => entry.name.endsWith("orchestrator"));
+  const renderedPaths = new Set();
+
+  for (const role of manifest.roles) {
+    const isOrchestratorSkill = adapter.orchestratorAs === "skill" && orchestrator && role.name === orchestrator.name;
+    const rendered = isOrchestratorSkill
+      ? renderOrchestratorSkillFile(adapter, role.name)
+      : renderTargetRoleFile(adapter, role.name);
+
     for (const output of role.requiredOutputs) {
       if (!rendered.includes(output)) {
         failures.push(`adapter ${adapter.target} render for ${role.name} missing output key: ${output}`);
       }
     }
-    if (adapter.target === "cursor" && !rendered.includes("name:")) {
-      failures.push(`adapter ${adapter.target} render for ${role.name} must preserve source frontmatter`);
+
+    const format = isOrchestratorSkill ? "markdown-frontmatter" : adapter.roleFormat;
+    if (format === "passthrough") {
+      if (!rendered.includes("name:")) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} must preserve source frontmatter`);
+      }
+    } else if (format === "markdown-frontmatter") {
+      if (!rendered.startsWith("---\n")) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} must start with YAML frontmatter`);
+      }
+      if (!rendered.includes(`name: ${role.name}\n`)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} missing name field`);
+      }
+      if (!/\ndescription: \S/.test(rendered)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has an empty description`);
+      }
+    } else if (format === "toml") {
+      for (const token of [`name = "${role.name}"`, "description = \"", "developer_instructions = \"\"\""]) {
+        if (!rendered.includes(token)) {
+          failures.push(`adapter ${adapter.target} render for ${role.name} missing TOML key: ${token.trim()}`);
+        }
+      }
+      if (!/\ndescription = "\S/.test(rendered)) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has an empty TOML description`);
+      }
+      // 이스케이프되지 않은 TOML 여러 줄 구분자가 남으면 파싱이 깨진다.
+      if ((rendered.match(/(?<!\\)"""/g) || []).length !== 2) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} has unbalanced TOML multiline delimiters`);
+      }
     }
-    if (adapter.target === "claude" && !rendered.includes("Claude Role Contract")) {
-      failures.push(`adapter ${adapter.target} render for ${role.name} missing Claude header`);
+
+    // 도구 가용성은 ## Tools 표가 사실로 알려준다. 렌더링 결과에 추론을 요구하는
+    // 조건문이 남아 있으면 에이전트가 자기 도구 가용성을 짐작하게 된다.
+    for (const phrase of ["사용 가능:", "사용 불가"]) {
+      if (rendered.includes(phrase)) {
+        failures.push(
+          `adapter ${adapter.target} render for ${role.name} still contains a tool-availability conditional: ${phrase}`
+        );
+      }
     }
+
+    if (!isOrchestratorSkill) {
+      const permissions = adapter.permissions[role.mutationPolicy] || {};
+      for (const key of Object.keys(permissions)) {
+        if (!rendered.includes(key)) {
+          failures.push(`adapter ${adapter.target} render for ${role.name} missing permission key: ${key}`);
+        }
+      }
+    }
+
+    const pattern = isOrchestratorSkill
+      ? adapter.skillFilePattern || "{role}/SKILL.md"
+      : adapter.roleFilePattern;
+    renderedPaths.add(pattern.split("{role}").join(role.name));
+  }
+
+  if (renderedPaths.size !== manifest.roles.length) {
+    failures.push(
+      `adapter ${adapter.target} produces ${renderedPaths.size} file path(s) for ${manifest.roles.length} role(s)`
+    );
   }
 
   return failures;
 }
+
 
 function validate() {
   console.log("\n  Agent Workflow Validation\n");
@@ -1486,22 +2074,83 @@ function validate() {
   const failures = [];
   const manifest = loadManifest();
 
-  if (!Array.isArray(manifest.skills) || manifest.skills.length === 0) {
+  if (!Array.isArray(manifest.roles) || manifest.roles.length === 0) {
     failures.push("agent-workflow.manifest.json must declare at least one role");
   }
 
-  for (const role of manifest.skills) {
-    if (!Array.isArray(role.handoffInputs) || !Array.isArray(role.handoffOutputs)) {
-      failures.push(`manifest role ${role.name} must declare handoffInputs and handoffOutputs`);
+  for (const role of manifest.roles) {
+    if (!Array.isArray(role.consumes) || !Array.isArray(role.produces)) {
+      failures.push(`manifest role ${role.name} must declare consumes and produces`);
     } else {
-      for (const output of role.handoffOutputs) {
+      for (const output of role.produces) {
         if (!role.requiredOutputs.includes(output)) {
-          failures.push(`manifest role ${role.name} handoff output is not a required output: ${output}`);
+          failures.push(`manifest role ${role.name} produces a key that is not a required output: ${output}`);
+        }
+      }
+    }
+    // capabilities는 D16의 능력 어휘만 쓴다. 계약의 "필요한 것"과 같은 값이어야
+    // 오케스트레이터가 반환된 needs를 역할로 해소할 수 있다.
+    for (const capability of role.capabilities || []) {
+      if (!CAPABILITY_VOCABULARY.includes(capability)) {
+        failures.push(`manifest role ${role.name} declares an unknown capability: ${capability}`);
+      }
+    }
+    if (!Array.isArray(role.skills)) {
+      failures.push(`manifest role ${role.name} must declare a skills array (D14)`);
+    }
+    if (role.toolPolicy !== "deny-by-default") {
+      failures.push(`manifest role ${role.name} must declare toolPolicy: deny-by-default`);
+    }
+    // mutation_policy: none인 역할이 쓰기 도구를 선언하면 계약과 권한이 어긋난다.
+    if (role.mutationPolicy === "none") {
+      for (const toolName of [...(role.requiredTools || []), ...(role.optionalTools || [])]) {
+        if (toolName === "file_edit") {
+          failures.push(`manifest role ${role.name} has mutationPolicy none but declares ${toolName}`);
         }
       }
     }
     failures.push(...validateSkill(role.name, role));
   }
+
+  // 의존성 그래프: 소비하는 키는 환경 입력이거나 어떤 역할이 생산해야 한다.
+  const producedKeys = new Set();
+  for (const role of manifest.roles) {
+    for (const key of role.produces || []) {
+      producedKeys.add(key);
+    }
+  }
+  const environmentInputs = manifest.environmentInputs || [];
+  for (const role of manifest.roles) {
+    for (const key of role.consumes || []) {
+      if (!producedKeys.has(key) && !environmentInputs.includes(key)) {
+        failures.push(`manifest role ${role.name} consumes ${key} but no role produces it`);
+      }
+    }
+  }
+
+  // 필수 간선의 순환과 도달 불가 역할을 검사한다. 역할이 10개를 넘으면
+  // 손으로는 맞출 수 없는 영역이다.
+  const graph = buildRoleGraph(manifest);
+  for (const cycle of findGraphCycles(graph.edges)) {
+    failures.push(`manifest role dependency cycle: ${cycle}`);
+  }
+  const dispatch = findDispatchOrder(manifest);
+  for (const name of dispatch.unreachable) {
+    failures.push(
+      `manifest role ${name} can never be dispatched; its consumes are not reachable from environment inputs`
+    );
+  }
+
+  // 제공자가 없는 능력은 실패가 아니라 알려진 공백으로 보고한다.
+  const providedCapabilities = new Set();
+  for (const role of manifest.roles) {
+    for (const capability of role.capabilities || []) {
+      providedCapabilities.add(capability);
+    }
+  }
+  const uncovered = CAPABILITY_VOCABULARY.filter(function (capability) {
+    return !providedCapabilities.has(capability);
+  });
 
   for (const adapter of loadAllAdapters()) {
     failures.push(...validateAdapter(adapter, manifest));
@@ -1534,6 +2183,16 @@ function validate() {
     }
   }
 
+  const handoffTemplatePath = path.join(TEMPLATES_DIR, "handoff-template.md");
+  if (fs.existsSync(handoffTemplatePath)) {
+    const handoffTemplate = readText(handoffTemplatePath);
+    for (const field of HANDOFF_ENVELOPE_FIELDS) {
+      if (!handoffTemplate.includes(field)) {
+        failures.push(`templates/handoff-template.md is missing envelope field: ${field}`);
+      }
+    }
+  }
+
   if (failures.length > 0) {
     for (const failure of failures) {
       console.error(`  [fail] ${failure}`);
@@ -1542,7 +2201,74 @@ function validate() {
     process.exit(1);
   }
 
-  console.log("  [ok] core roles, adapters, and package metadata are consistent.\n");
+  console.log("  [ok] core roles, adapters, and package metadata are consistent.");
+  if (uncovered.length > 0) {
+    console.log(`  [gap] no role provides: ${uncovered.join(", ")} (expected until new roles are added)`);
+  }
+  console.log(`  [graph] ${dispatch.order.length} role(s) reachable, no dependency cycles`);
+  console.log("");
+}
+
+function getCodexHome() {
+  return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+}
+
+function realPathOrSelf(targetPath) {
+  try {
+    return fs.realpathSync(targetPath);
+  } catch (error) {
+    return path.resolve(targetPath);
+  }
+}
+
+// ~/.codex/config.toml의 [projects."<path>"] trust_level = "trusted" 항목을 모은다.
+// 전체 TOML 파싱이 아니라 섹션 헤더와 해당 키만 훑는다.
+// 읽을 수 없으면 null을 반환한다. 빈 배열(신뢰 없음)과 구분해야 한다.
+function readCodexTrustedPaths() {
+  const configPath = path.join(getCodexHome(), "config.toml");
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  let contents;
+  try {
+    contents = readText(configPath);
+  } catch (error) {
+    return null;
+  }
+  const trusted = [];
+  let currentProject = null;
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.trim();
+    const section = line.match(/^\[projects\."(.+)"\]$/);
+    if (section) {
+      currentProject = section[1];
+      continue;
+    }
+    if (line.startsWith("[")) {
+      currentProject = null;
+      continue;
+    }
+    if (currentProject && /^trust_level\s*=\s*"trusted"$/.test(line)) {
+      trusted.push(currentProject);
+      currentProject = null;
+    }
+  }
+  return trusted;
+}
+
+// trust는 하위 디렉터리로 상속된다 (2026-09-20 실측, HARNESS_CAPABILITIES 9절).
+function findCodexTrustAnchor(projectRoot, trustedPaths) {
+  const resolved = realPathOrSelf(projectRoot);
+  let best = null;
+  for (const trustedPath of trustedPaths) {
+    const base = realPathOrSelf(trustedPath);
+    if (resolved === base || resolved.startsWith(base + path.sep)) {
+      if (!best || base.length > best.length) {
+        best = base;
+      }
+    }
+  }
+  return best;
 }
 
 function doctor() {
@@ -1554,18 +2280,42 @@ function doctor() {
 
   if (adapter.target === "codex") {
     const codexFiles = getManagedRoleFiles(adapter);
+    const orchestratorName = getOrchestratorRoleName();
+    const skillFiles = codexFiles.filter((entry) => entry.roleName === orchestratorName);
+    const agentFiles = codexFiles.filter((entry) => entry.roleName !== orchestratorName);
+    const skillsOk = skillFiles.every((entry) => fs.existsSync(entry.filePath));
+    const agentsOk = agentFiles.every((entry) => fs.existsSync(entry.filePath));
+    if (!global) {
+      // .codex/ 레이어 전체(config + agents)가 프로젝트 trust 뒤에 있다.
+      // 신뢰되지 않으면 파일이 올바르게 설치되어도 Codex가 읽지 않는다.
+      const trustedPaths = readCodexTrustedPaths();
+      if (trustedPaths === null) {
+        findings.push({
+          label: "codex project trust",
+          ok: false,
+          detail: `cannot read ${path.join(getCodexHome(), "config.toml")} (open the project in Codex once and trust it)`,
+        });
+      } else {
+        const anchor = findCodexTrustAnchor(cwd, trustedPaths);
+        findings.push({
+          label: "codex project trust",
+          ok: Boolean(anchor),
+          detail: anchor
+            ? `trusted via ${anchor}`
+            : "not trusted; Codex skips .codex/ entirely, so custom agents and config will not load. Open this project in Codex once and choose to trust it",
+        });
+      }
+    }
     findings.push({
       label: `${global ? adapter.globalPaths.skillsDir : adapter.projectPaths.skillsDir}`,
-      ok: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md")),
-      detail: fs.existsSync(path.join(paths.skillsDir, "feature-orchestrator", "SKILL.md"))
-        ? "feature-orchestrator present"
-        : "missing (run install)",
+      ok: skillsOk,
+      detail: skillsOk ? `${orchestratorName} present` : "missing (run install)",
     });
     findings.push({
       label: `${global ? adapter.globalPaths.agentsDir : adapter.projectPaths.agentsDir}`,
-      ok: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath)),
-      detail: codexFiles.slice(1).every((entry) => fs.existsSync(entry.filePath))
-        ? "planner, designer, and developer present"
+      ok: agentsOk,
+      detail: agentsOk
+        ? `${agentFiles.length} custom agent(s) present`
         : "one or more custom agents are missing",
     });
     let configOk = false;

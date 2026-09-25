@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Three new roles: `role-analyst` (external evidence and metrics), `role-qa`
+  (turns acceptance criteria into executable tests), and `role-releaser`
+  (deploy and rollback). Ten roles total
+- Role declarations drive dispatch: `capabilities`, `produces`, `consumes`, and
+  `optionalConsumes` replace the fixed routing table
+- Handoff envelope shared by every role, with sourced facts, separated
+  assumptions, blocking questions, needed capabilities, and explicit scope
+- `Activation`, `Done Criteria`, and `Stop Conditions` in every role contract
+- Per-role tool binding rendered into each target's native syntax
+- Behavioral eval harness (`npm run eval`) with a pure judge that is
+  self-verified on every `npm run check`
+- `doctor` reports Codex project trust; an untrusted project silently skips the
+  whole `.codex/` layer
+- `npm run check:package` verifies the published package contains product files
+  only and nothing the runtime needs is missing
+
+#### Previously unreleased
+
+
 - Publishable Codex runtime payload and project/global installer coverage for
   the official skill, custom-agent, config, and guidance paths
 - Pull-request CI for package checks and packed-content verification
@@ -25,6 +44,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Claude target now installs roles as subagents under `.claude/agents/` and the
+  orchestrator as a skill. The previous layout wrote `CLAUDE.md` into
+  `.claude/skills/`, which Claude Code never loaded
+- Codex deploys all ten roles; previously only three custom agents shipped
+- Role files are rendered from the manifest and role contracts instead of
+  hand-written payload copies
+- `mutationPolicy` maps to each target's native permission keys, and tool
+  allowlists are derived from role declarations rather than fixed per policy
+- The published package no longer ships development documents, the eval
+  harness, or repository test scripts
+
+#### Previously unreleased
+
 - Codex install, update, and uninstall now preserve shared TOML comments and
   unknown keys, manage only a marked `AGENTS.md` block, track full-file
   ownership, and safely migrate provably package-owned legacy `AGENT.md` files
@@ -38,6 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `9b3a24c55ff90135e9de10e464098d4042790c12`
 - Consumer-distribution implementation is recorded in commit
   `b11cc8957c01457b6d2b383f5a65de6203e74ae0`
+
+### Fixed
+
+- Claude target produced files that were never discovered as skills
+- `role-reviewer` declared `mutationPolicy: none` but received `Bash` through
+  `test_runner`, so it was not read-only
+- Deployed role files pointed at `Source: skills/role-*.md`, a path that does
+  not exist in a consumer project, and roles cited it as evidence
+- Updating an existing cursor install aborted because the recorded ownership
+  key format changed
+- Legacy role files from earlier layouts are migrated instead of left orphaned
 
 ## [1.1.0] - 2026-07-25
 

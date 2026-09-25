@@ -70,15 +70,15 @@ function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-function smokeTarget(target, rootDir, roleFileName, targetDir) {
+function smokeTarget(target, rootDir, orchestratorPath, rolePath) {
   run(["install", "--target", target], rootDir);
   run(["init"], rootDir);
   const feature = run(["feature", "--name", "user-onboarding"], rootDir);
   const rerun = run(["feature", "--name", "user-onboarding"], rootDir);
   run(["doctor", "--target", target], rootDir);
 
-  assertExists(path.join(rootDir, targetDir, "skills", "role-orchestrator", roleFileName));
-  assertExists(path.join(rootDir, targetDir, "skills", "role-reviewer", roleFileName));
+  assertExists(path.join(rootDir, ...orchestratorPath));
+  assertExists(path.join(rootDir, ...rolePath));
   assertExists(path.join(rootDir, ".agent-workflow", "workflow.json"));
   assertJsonField(path.join(rootDir, ".agent-workflow", "workflow.json"), "schemaVersion", 2);
   assertJsonField(path.join(rootDir, ".agent-workflow", "workflow.json"), "specsRoot", ".agent-workflow/specs");
@@ -89,7 +89,7 @@ function smokeTarget(target, rootDir, roleFileName, targetDir) {
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "articulate.md"));
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "designs.md"));
   assertExists(path.join(rootDir, ".agent-workflow", "specs", "features", "user-onboarding", "specs.md"));
-  assertNotExists(path.join(rootDir, targetDir, "specs"));
+  assertNotExists(path.join(rootDir, orchestratorPath[0], "specs"));
   assertExists(path.join(rootDir, ".agent-workflow", ".local", "state.json"));
   assertIncludes(feature.stdout, "3 written, 0 skipped");
   assertIncludes(rerun.stdout, "0 written, 3 skipped");
@@ -111,10 +111,37 @@ function smokeCodex(rootDir) {
   run(["update", "--target", "codex"], rootDir);
   const doctor = run(["doctor", "--target", "codex"], rootDir);
 
-  assertExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  for (const roleName of ["planner", "designer", "developer"]) {
-    assertExists(path.join(rootDir, ".codex", "agents", `${roleName}.toml`));
+  assertExists(path.join(rootDir, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  for (const roleName of ["planner", "designer", "developer", "researcher", "architect", "reviewer", "analyst", "qa", "releaser"]) {
+    assertExists(path.join(rootDir, ".codex", "agents", `role-${roleName}.toml`));
   }
+  const plannerAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-planner.toml"),
+    "utf8"
+  );
+  assertIncludes(plannerAgent, 'name = "role-planner"');
+  assertIncludes(plannerAgent, "developer_instructions =");
+  const researcherAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-researcher.toml"),
+    "utf8"
+  );
+  assertIncludes(researcherAgent, 'sandbox_mode = "read-only"');
+  // 1.5 도구 바인딩: Codex는 역할별 허용 목록이 없고 web_search만 제어 가능하다.
+  // 1.8에서 외부 조사 경계가 analyst로 옮겨갔다. researcher는 저장소 내부만 본다.
+  assertIncludes(researcherAgent, "web_search = false");
+  const analystAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-analyst.toml"),
+    "utf8"
+  );
+  assertIncludes(analystAgent, "web_search = true");
+  assertIncludes(analystAgent, 'sandbox_mode = "read-only"');
+  const reviewerAgent = fs.readFileSync(
+    path.join(rootDir, ".codex", "agents", "role-reviewer.toml"),
+    "utf8"
+  );
+  assertIncludes(reviewerAgent, "web_search = false");
+  assertIncludes(researcherAgent, "## Tools");
+  assertNotIncludes(researcherAgent, "사용 가능:");
   const config = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
   assertIncludes(config, "# keep this comment");
   assertIncludes(config, 'model = "consumer-model"');
@@ -126,20 +153,48 @@ function smokeCodex(rootDir) {
   assertIncludes(guidance, "<!-- BEGIN agent-workflow-orchestration:codex -->");
   assertIncludes(doctor.stdout, "multi-agent settings present");
 
+  // 프로젝트 trust: .codex/ 레이어 전체가 이 게이트 뒤에 있다.
+  // 신뢰 정보를 읽을 수 없거나 신뢰되지 않으면 doctor가 경고해야 한다.
+  const untrustedHome = path.join(rootDir, "codex-home-untrusted");
+  fs.mkdirSync(untrustedHome, { recursive: true });
+  fs.writeFileSync(path.join(untrustedHome, "config.toml"), '[projects."/somewhere/else"]\ntrust_level = "trusted"\n');
+  const untrustedDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: untrustedHome });
+  assertIncludes(untrustedDoctor.stdout, "[warn] codex project trust");
+  assertIncludes(untrustedDoctor.stdout, "not trusted");
+
+  // 상위 경로가 신뢰되면 하위 디렉터리가 상속한다 (2026-09-20 실측).
+  const trustedHome = path.join(rootDir, "codex-home-trusted");
+  fs.mkdirSync(trustedHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(trustedHome, "config.toml"),
+    `[projects."${fs.realpathSync(rootDir)}"]\ntrust_level = "trusted"\n`
+  );
+  const trustedDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: trustedHome });
+  assertIncludes(trustedDoctor.stdout, "[ok] codex project trust");
+
+  // 신뢰 정보를 아예 읽을 수 없는 경우도 경고한다.
+  const missingHome = path.join(rootDir, "codex-home-missing");
+  const missingDoctor = run(["doctor", "--target", "codex"], rootDir, false, { CODEX_HOME: missingHome });
+  assertIncludes(missingDoctor.stdout, "[warn] codex project trust");
+  assertIncludes(missingDoctor.stdout, "cannot read");
+
+  fs.rmSync(untrustedHome, { recursive: true, force: true });
+  fs.rmSync(trustedHome, { recursive: true, force: true });
+
   const state = JSON.parse(
     fs.readFileSync(path.join(rootDir, ".agent-workflow", ".local", "state.json"), "utf8")
   );
   if (
     state.schemaVersion !== 3 ||
-    Object.keys(state.targets.codex.files).length !== 4 ||
+    Object.keys(state.targets.codex.files).length !== 10 ||
     state.targets.codex.shared.config.addedKeys.length !== 2
   ) {
     throw new Error("Codex install state must record full-file and shared-key ownership");
   }
 
   run(["uninstall", "--target", "codex"], rootDir);
-  assertNotExists(path.join(rootDir, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertNotExists(path.join(rootDir, ".codex", "agents", "planner.toml"));
+  assertNotExists(path.join(rootDir, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(rootDir, ".codex", "agents", "role-planner.toml"));
   const remainingConfig = fs.readFileSync(path.join(rootDir, ".codex", "config.toml"), "utf8");
   assertIncludes(remainingConfig, "# keep this comment");
   assertIncludes(remainingConfig, 'model = "consumer-model"');
@@ -169,11 +224,51 @@ const codexLegacyFixture = makeFixture();
 const codexConflictFixture = makeFixture();
 const codexDottedFixture = makeFixture();
 const codexOwnedFileConflictFixture = makeFixture();
+const claudeLegacyFixture = makeFixture();
+const cursorLegacyKeyFixture = makeFixture();
+const toolBindingFixture = makeFixture();
 
 try {
-  smokeTarget("cursor", cursorFixture, "SKILL.md", ".cursor");
+  smokeTarget(
+    "cursor",
+    cursorFixture,
+    [".cursor", "skills", "role-orchestrator", "SKILL.md"],
+    [".cursor", "skills", "role-reviewer", "SKILL.md"]
+  );
   smokeCodex(codexFixture);
-  smokeTarget("claude", claudeFixture, "CLAUDE.md", ".claude");
+  smokeTarget(
+    "claude",
+    claudeFixture,
+    [".claude", "skills", "role-orchestrator", "SKILL.md"],
+    [".claude", "agents", "role-reviewer.md"]
+  );
+
+  // 1.5 도구 바인딩: 서브에이전트 tools 허용 목록이 역할 선언에서 도출되어야 한다.
+  run(["install", "--target", "claude"], toolBindingFixture);
+  const researcherAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-researcher.md"),
+    "utf8"
+  );
+  // 1.8: 외부 조사는 analyst의 일이다. researcher는 저장소 내부만 본다.
+  assertIncludes(researcherAgentFile, "tools: Read, Glob, Grep");
+  assertNotIncludes(researcherAgentFile, "WebSearch");
+  const analystAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-analyst.md"),
+    "utf8"
+  );
+  assertIncludes(analystAgentFile, "WebSearch");
+  assertNotIncludes(analystAgentFile, "Write, Edit");
+  const developerAgentFile = fs.readFileSync(
+    path.join(toolBindingFixture, ".claude", "agents", "role-developer.md"),
+    "utf8"
+  );
+  // 쓰기 도구는 file_edit를 선언한 역할에만 붙는다.
+  assertIncludes(developerAgentFile, "Write, Edit");
+  assertNotIncludes(researcherAgentFile, "Write, Edit");
+  // 도구 가용성은 표로 알려주고 조건문을 남기지 않는다.
+  assertIncludes(researcherAgentFile, "## Tools");
+  assertNotIncludes(researcherAgentFile, "사용 가능:");
+  assertNotIncludes(developerAgentFile, "사용 불가");
 
   run(["install", "--target", "cursor"], multiTargetFixture);
   run(["init"], multiTargetFixture);
@@ -191,7 +286,7 @@ try {
   assertExists(userTargetFile);
   assertExists(roleSidecar);
   assertExists(path.join(multiTargetFixture, ".cursor", "skills", "role-orchestrator", "SKILL.md"));
-  assertExists(path.join(multiTargetFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(multiTargetFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   assertExists(path.join(multiTargetFixture, ".agent-workflow", "specs", "features", "shared-feature", "specs.md"));
   run(["uninstall", "--target", "cursor"], multiTargetFixture);
   assertExists(userTargetFile);
@@ -359,7 +454,7 @@ try {
   const migratedState = JSON.parse(fs.readFileSync(legacyStatePath, "utf8"));
   if (
     migratedState.targets.cursor.installedVersion !== "1.1.0" ||
-    Object.keys(migratedState.targets.cursor.files).length !== 7
+    Object.keys(migratedState.targets.cursor.files).length !== 10
   ) {
     throw new Error("forced legacy update must record v1.1.0 ownership hashes");
   }
@@ -387,7 +482,7 @@ try {
   assertIncludes(customResume.stdout, "docs/agent-specs/features/custom-root/articulate.md");
   run(["install", "--target", "codex"], customSpecsFixture);
   assertExists(path.join(customSpecsFixture, "docs", "agent-specs", "features", "custom-root", "specs.md"));
-  assertExists(path.join(customSpecsFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(customSpecsFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   const customDoctor = run(["doctor", "--target", "codex"], customSpecsFixture);
   assertIncludes(customDoctor.stdout, "docs/agent-specs: present");
 
@@ -434,15 +529,15 @@ try {
   run(["install", "--global", "--target", "codex"], globalFixture, false, {
     HOME: globalFixture,
   });
-  assertExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertExists(path.join(globalFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertExists(path.join(globalFixture, ".codex", "agents", "role-planner.toml"));
   assertExists(path.join(globalFixture, ".codex", "config.toml"));
   assertExists(path.join(globalFixture, ".codex", "AGENTS.md"));
   run(["uninstall", "--global", "--target", "codex"], globalFixture, false, {
     HOME: globalFixture,
   });
-  assertNotExists(path.join(globalFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
-  assertNotExists(path.join(globalFixture, ".codex", "agents", "planner.toml"));
+  assertNotExists(path.join(globalFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(globalFixture, ".codex", "agents", "role-planner.toml"));
   assertNotExists(path.join(globalFixture, ".codex", "config.toml"));
   assertNotExists(path.join(globalFixture, ".codex", "AGENTS.md"));
 
@@ -472,14 +567,85 @@ try {
   run(["update", "--target", "codex"], codexLegacyFixture);
   assertNotExists(legacyRolePath);
   assertExists(path.join(legacyRoleDir, "notes.md"));
-  assertExists(path.join(codexLegacyFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertExists(path.join(codexLegacyFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
+
+  // 1.1.0 → 1.2.0 경로 이동: 구 claude 레이아웃을 합성해 마이그레이션을 검증한다.
+  // 구 배포는 .claude/skills/<role>/CLAUDE.md 였고 state 키는 <role>/CLAUDE.md 였다.
+  const legacyClaudeFiles = {};
+  for (const roleName of ["role-orchestrator", "role-planner", "role-reviewer"]) {
+    const dir = path.join(claudeLegacyFixture, ".claude", "skills", roleName);
+    fs.mkdirSync(dir, { recursive: true });
+    const contents = `# legacy claude role: ${roleName}\n`;
+    fs.writeFileSync(path.join(dir, "CLAUDE.md"), contents);
+    legacyClaudeFiles[`${roleName}/CLAUDE.md`] = crypto.createHash("sha256").update(contents).digest("hex");
+  }
+  // 사용자가 수정한 구 파일은 해시가 어긋나므로 제거되면 안 된다.
+  const editedLegacy = path.join(claudeLegacyFixture, ".claude", "skills", "role-reviewer", "CLAUDE.md");
+  fs.writeFileSync(editedLegacy, "# legacy claude role: role-reviewer\nmy own note\n");
+  const legacySidecar = path.join(claudeLegacyFixture, ".claude", "skills", "role-planner", "notes.md");
+  fs.writeFileSync(legacySidecar, "keep this sidecar\n");
+  fs.mkdirSync(path.join(claudeLegacyFixture, ".agent-workflow", ".local"), { recursive: true });
+  fs.writeFileSync(
+    path.join(claudeLegacyFixture, ".agent-workflow", ".local", "state.json"),
+    `${JSON.stringify({
+      schemaVersion: 3,
+      installedTargets: ["claude"],
+      packageVersion: "1.1.0",
+      targets: { claude: { installedVersion: "1.1.0", files: legacyClaudeFiles } },
+    }, null, 2)}\n`
+  );
+  const claudeMigration = run(["update", "--target", "claude"], claudeLegacyFixture);
+  // 새 레이아웃이 생성된다.
+  assertExists(path.join(claudeLegacyFixture, ".claude", "agents", "role-planner.md"));
+  assertExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-orchestrator", "SKILL.md"));
+  // 소유권이 증명된 구 파일은 남지 않는다.
+  assertNotExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-planner", "CLAUDE.md"));
+  assertNotExists(path.join(claudeLegacyFixture, ".claude", "skills", "role-orchestrator", "CLAUDE.md"));
+  // 수정된 구 파일은 보존되고 경로가 보고된다.
+  assertExists(editedLegacy);
+  assertIncludes(claudeMigration.stdout, "[kept]");
+  assertIncludes(claudeMigration.stdout, "role-reviewer/CLAUDE.md");
+  assertIncludes(claudeMigration.stdout, "[migrated] claude");
+  assertExists(legacySidecar);
+
+  // 경로는 그대로인데 state 키 형식만 바뀐 경우(cursor)도 소유권이 유지되어야 한다.
+  // 폴백이 없으면 기존 설치본이 update를 전혀 하지 못한다.
+  const cursorRoleDir = path.join(cursorLegacyKeyFixture, ".cursor", "skills", "role-planner");
+  fs.mkdirSync(cursorRoleDir, { recursive: true });
+  const cursorLegacyContents = "# legacy cursor role\n";
+  fs.writeFileSync(path.join(cursorRoleDir, "SKILL.md"), cursorLegacyContents);
+  fs.mkdirSync(path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local"), { recursive: true });
+  fs.writeFileSync(
+    path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local", "state.json"),
+    `${JSON.stringify({
+      schemaVersion: 3,
+      installedTargets: ["cursor"],
+      packageVersion: "1.1.0",
+      targets: {
+        cursor: {
+          installedVersion: "1.1.0",
+          files: {
+            "role-planner/SKILL.md": crypto.createHash("sha256").update(cursorLegacyContents).digest("hex"),
+          },
+        },
+      },
+    }, null, 2)}\n`
+  );
+  run(["update", "--target", "cursor"], cursorLegacyKeyFixture);
+  assertExists(path.join(cursorRoleDir, "SKILL.md"));
+  const cursorLegacyState = JSON.parse(
+    fs.readFileSync(path.join(cursorLegacyKeyFixture, ".agent-workflow", ".local", "state.json"), "utf8")
+  );
+  if (!cursorLegacyState.targets.cursor.files[".cursor/skills/role-planner/SKILL.md"]) {
+    throw new Error("cursor state must be rewritten with project-relative keys after migration");
+  }
 
   fs.mkdirSync(path.join(codexConflictFixture, ".codex"), { recursive: true });
   const conflictingConfig = "[features]\nmulti_agent = false\n";
   fs.writeFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), conflictingConfig);
   const configConflict = run(["install", "--target", "codex"], codexConflictFixture, true);
   assertIncludes(configConflict.stderr || configConflict.stdout, "incompatible TOML value");
-  assertNotExists(path.join(codexConflictFixture, ".agents", "skills", "feature-orchestrator", "SKILL.md"));
+  assertNotExists(path.join(codexConflictFixture, ".agents", "skills", "role-orchestrator", "SKILL.md"));
   if (fs.readFileSync(path.join(codexConflictFixture, ".codex", "config.toml"), "utf8") !== conflictingConfig) {
     throw new Error("Codex shared-file preflight conflict must not change config.toml");
   }
@@ -513,7 +679,7 @@ try {
   );
   const guidanceConflict = run(["uninstall", "--target", "codex", "--force"], codexConflictFixture, true);
   assertIncludes(guidanceConflict.stderr || guidanceConflict.stdout, "managed AGENTS.md block was modified");
-  assertExists(path.join(codexConflictFixture, ".codex", "agents", "planner.toml"));
+  assertExists(path.join(codexConflictFixture, ".codex", "agents", "role-planner.toml"));
 
   fs.mkdirSync(path.join(codexDottedFixture, ".codex"), { recursive: true });
   fs.writeFileSync(
@@ -542,11 +708,11 @@ try {
 
   fs.mkdirSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents"), { recursive: true });
   const userPlanner = "# consumer-owned planner\n";
-  fs.writeFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), userPlanner);
+  fs.writeFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "role-planner.toml"), userPlanner);
   const ownedFileConflict = run(["install", "--target", "codex"], codexOwnedFileConflictFixture, true);
   assertIncludes(ownedFileConflict.stderr || ownedFileConflict.stdout, "file exists without package ownership");
   if (
-    fs.readFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "planner.toml"), "utf8") !==
+    fs.readFileSync(path.join(codexOwnedFileConflictFixture, ".codex", "agents", "role-planner.toml"), "utf8") !==
     userPlanner
   ) {
     throw new Error("Codex full-file conflict must preserve consumer content");
@@ -574,4 +740,7 @@ try {
   cleanup(codexConflictFixture);
   cleanup(codexDottedFixture);
   cleanup(codexOwnedFileConflictFixture);
+  cleanup(claudeLegacyFixture);
+  cleanup(cursorLegacyKeyFixture);
+  cleanup(toolBindingFixture);
 }

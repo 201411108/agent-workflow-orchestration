@@ -41,8 +41,8 @@ The documents are not one-time handoffs. They can be revised during development 
 | Target | Runtime files | Shared Specs Path |
 |--------|---------------|-------------------|
 | `cursor` | `.cursor/skills/*/SKILL.md` | `.agent-workflow/specs/` |
-| `codex` | `.agents/skills/feature-orchestrator/SKILL.md`, `.codex/agents/*.toml`, `.codex/config.toml`, managed `AGENTS.md` block | `.agent-workflow/specs/` |
-| `claude` | `.claude/skills/*/CLAUDE.md` | `.agent-workflow/specs/` |
+| `codex` | `.agents/skills/role-orchestrator/SKILL.md`, `.codex/agents/role-*.toml`, `.codex/config.toml`, managed `AGENTS.md` block | `.agent-workflow/specs/` |
+| `claude` | `.claude/skills/role-orchestrator/SKILL.md`, `.claude/agents/role-*.md` | `.agent-workflow/specs/` |
 
 Multiple targets can be installed in one project. Their role files read the same harness-neutral specs and continuity state.
 
@@ -96,9 +96,28 @@ endings are preserved. Inline-table definitions of `features` or `agents`,
 disabled required flags, and a thread cap below three are reported as conflicts
 instead of being rewritten.
 
+### Codex requires project trust
+
+Codex skips the entire `.codex/` layer in an untrusted project, so custom agents
+and the merged config are ignored even when the files are installed correctly.
+Trust is inherited by subdirectories of a trusted path.
+
 After a Codex install or update, open the project as trusted and start a new
-Codex session. Confirm `feature-orchestrator` with `/skills` and active custom
+Codex session. Confirm `role-orchestrator` with `/skills` and active custom
 agent threads with `/agent`.
+
+`doctor` reports trust state so an installed-but-inactive target is diagnosable:
+
+```bash
+agent-workflow-orchestration doctor --target codex
+```
+
+```text
+[warn] codex project trust: not trusted; Codex skips .codex/ entirely, ...
+```
+
+The `.agents/skills/` orchestrator skill is outside `.codex/` and loads without
+trust.
 
 ## Initialize Specs
 

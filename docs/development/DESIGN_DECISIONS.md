@@ -47,17 +47,27 @@
 대신 각 역할이 자기 능력과 입출력을 선언하고, 디스패처가 "아직 없는 산출물"을 기준으로
 매 스텝 라우팅을 다시 계산한다. 빌드 시스템의 의존성 해소와 같은 구조다.
 
-역할 선언(`agent-workflow.manifest.json`):
+역할 선언(`agent-workflow.manifest.json`). 1.7에서 구현했으며 `capabilities`는
+D16의 능력 어휘를 쓴다. `consumes`/`produces`는 기존 `handoffInputs`/`handoffOutputs`를
+이름만 바꾼 것이다. 두 개의 진실 원본을 만들지 않기 위해 새 키를 추가하지 않고 renamed.
 
 ```json
 {
-  "name": "role-analyst",
-  "capabilities": ["market-research", "metric-analysis", "competitor-scan"],
-  "produces": ["market_evidence", "metric_report"],
-  "consumes": ["user_request"],
-  "mutationPolicy": "none"
+  "name": "role-planner",
+  "capabilities": ["product-intent", "acceptance-criteria"],
+  "produces": ["articulate_doc", "handoff_notes"],
+  "consumes": ["user_request", "evidence_report"],
+  "mutationPolicy": "docs-only"
 }
 ```
+
+생산자가 필요 없는 키는 manifest의 `environmentInputs`에 선언한다
+(`user_request`, `workflow_state`).
+
+오케스트레이터가 선언을 읽으려면 배포 파일에 선언이 실려 있어야 한다.
+렌더러가 각 역할 파일에 자기 선언을, 오케스트레이터 파일에 **전체 역할 명부**를 넣는다.
+명부는 "요청 유형 → 역할 순서" 표가 아니라 역할이 무엇을 할 수 있고 무엇을
+필요로 하는지의 선언이다.
 
 디스패치 절차:
 
@@ -119,41 +129,56 @@ B → (blocking_question) → 디스패처 → A → (답) → 디스패처 → 
 
 ---
 
-## D5. 핸드오프는 frontmatter와 본문의 하이브리드로 고정한다
+## D5. 핸드오프는 모든 역할이 공유하는 봉투로 고정한다
 
 - 상태: 확정
-- 결정일: 2026-09-20
+- 결정일: 2026-09-20 (1.4에서 스키마 확정, 2026-09-21)
 
 자연어 마크다운 핸드오프는 다음 역할이 매번 재해석해야 하고, "사실과 가정을 구분하라"
 같은 지시가 문장으로만 존재해 강제되지 않는다. 반대로 완전 JSON은 LLM 산출 품질을
-떨어뜨린다. 기계가 읽을 부분은 frontmatter로, 판단이 필요한 부분은 본문으로 나눈다.
+떨어뜨린다. 역할별 산출물(payload)과 분리된 **봉투(envelope)**를 두고, 봉투만 형식을
+고정한다.
 
-```markdown
----
+1.1 조사에서 확인했듯 구조화된 컨텍스트를 넘기는 네이티브 경로가 없으므로
+(판정: 보완) 봉투는 task message에 실린다.
+
+```yaml
 from: role-planner
-to: role-developer
-work_id: user-onboarding
+work_id: <work-id 또는 none>
+status: complete | blocked
 produced: [articulate_doc]
 facts_confirmed:
-  - { claim: "...", source: "path/to/file.ts:42" }
+  - claim: 확인된 사실
+    source: path/to/file.ts:42
 assumptions:
-  - { claim: "...", risk: high }
+  - claim: 검증되지 않은 전제
+    risk: high | medium | low
 blocking_questions: []
-out_of_scope: ["결제 흐름", "기존 세션 로직"]
----
-
-## 결정 사항
-## 다음 역할이 확인할 것
+needs: []
+out_of_scope: [이번 실행에서 건드리지 않은 영역]
 ```
 
-강제되는 세 가지:
+강제되는 다섯 가지:
 
-- `facts_confirmed`는 출처 경로가 필수다. 출처 없는 항목은 `assumptions`로 간다.
-- `blocking_questions`가 비어 있지 않으면 디스패처가 루프를 멈춘다.
-- `out_of_scope`는 필수 필드다. 자율 에이전트의 최대 실패 모드는 멈춤이 아니라
-  범위 확장이며, 매 핸드오프에서 범위 밖을 명시해야 누적 확장을 막는다.
+- `facts_confirmed`는 출처가 필수다. 출처 없는 주장은 `assumptions`로 간다.
+  쓸 수 있는 형태는 셋뿐이며 서술("코드에서 확인함")은 출처가 아니다.
+  - 파일 경로 `src/greet.js:42`
+  - URL `https://...`
+  - 검색 범위 `glob:**/package.json` — **없음을 확인한 사실**의 출처.
+    1.6 첫 실행에서 발견한 계약 공백이다. 역할이 "package.json이 없다"를
+    사실로 보고하려 했는데 자리가 없어 `source`에 서술을 밀어 넣었다.
+- `out_of_scope`는 비울 수 있으나 **생략할 수 없다.** 자율 에이전트의 최대 실패 모드는
+  멈춤이 아니라 범위가 조금씩 넓어지는 것이며, 매 핸드오프에서 범위 밖을 명시해야
+  누적 확장을 막는다.
+- `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.
+- `needs`가 비어 있지 않으면 `status: blocked`이며 오케스트레이터가 배정한다.
+  어휘는 D16과 같다.
+- **`to` 필드는 두지 않는다.** 역할이 다음 역할을 지명하는 것은 D16 위반이다.
+  봉투는 언제나 오케스트레이터로 반환되며 배정은 오케스트레이터가 한다.
 
----
+봉투는 7개 역할이 동일하며 `## Handoff Contract` 절에 있다. `validate`가 모든 역할의
+봉투 필드 존재와 `from`이 자기 역할인지를 검사한다. 이 필드들이 1.6 검증 하네스의
+기계 판정 기준이 된다.
 
 ## D6. 경계 조건을 디스패처에 내장한다
 
@@ -246,11 +271,48 @@ npm 설치 후 사용자 프로젝트에서 동작하는 흐름(레이어 2)이�
 1. 제품 역할은 소비자 프로젝트의 기능을 구현하도록 설계되었다. 오케스트레이션
    패키지 자체를 진화시키는 작업(역할 계약 수정, manifest 스키마 변경, 어댑터 렌더링)은
    어떤 제품 역할의 책임도 아니다.
-2. 자기가 서 있는 바닥을 리팩터링하게 된다. 1.5에서 라우팅을 통째로 교체하는데
+2. 자기가 서 있는 바닥을 리팩터링하게 된다. 1.7에서 라우팅을 통째로 교체하는데
    그 라우팅으로 작업하고 있으면 실패 원인이 변경 때문인지 작업 방식 때문인지
    분리할 수 없다.
 3. 자기 자신에 설치하는 것은 제품 검증이 아니다. 실제 검증은 Phase 2에서
    별도 미니 프로젝트로 수행한다.
+
+### 배포 산출물에서의 경계 (2026-09-24)
+
+D10을 계약으로 정해두고 **실제 npm 산출물이 그것을 지키는지는 검증하지 않았다.**
+Phase 1을 닫으며 확인한 결과 위반하고 있었다.
+
+| 유출된 것 | 레이어 |
+|---|---|
+| `docs/development/` (ROADMAP, DEVLOG, DESIGN_DECISIONS, eval-history 17개) | 1 |
+| `docs/operations/CODEX_ORCHESTRATION.md` | 1 |
+| `tests/eval/` (1.5에서 잘못 추가) | 1 |
+| `scripts/` (fixture-smoke 등 개발 테스트) | 1 |
+
+`bin/cli.js`가 실행 중 읽는 것은 `skills/`, `templates/`, `adapters/`,
+`payloads/codex/`, `agent-workflow.manifest.json`뿐이다. 나머지는 런타임에 불필요했다.
+
+`package.json`의 `files`를 런타임 필요분과 소비자 문서로 좁혔다.
+배포 산출물이 65개 파일에서 **31개(57KB)** 로 줄었다.
+
+### 기계적 강제
+
+`scripts/check-package-layers.js`가 `npm pack --dry-run --json`의 실제 파일 목록을
+읽어 **양방향으로** 검사한다. `npm run check`와 CI에 들어간다.
+
+| 방향 | 검사 |
+|---|---|
+| 유출 | 레이어 1 경로가 배포에 섞였는가 |
+| 누락 | 런타임에 필요한 파일이 빠졌는가 |
+| 누락 | manifest의 모든 역할 계약이 배포되는가 |
+
+**누락 방향이 더 위험하다.** `files`를 과하게 좁히면 소비자에게서 조용히 깨지는데,
+개발 저장소에서는 파일이 다 있으므로 테스트가 통과한다.
+역할 계약 검사는 manifest에서 동적으로 읽으므로 역할이 늘어도 따로 고칠 필요가 없다.
+
+검증: 세 실패 유형(개발 파일 유출 / 런타임 파일 누락 / 역할 계약 누락)을 각각
+주입해 잡는 것을 확인했고, 다듬은 tarball을 실제로 설치해 `init`, `install`,
+`feature`, `doctor`가 동작하는 것을 확인했다.
 
 ### 위반 해소 (2026-09-20)
 
@@ -264,7 +326,7 @@ ROADMAP 1.0에서 A안(제거)을 채택해 네 파일을 삭제했다. 삭제 �
 사본에 의존하는 코드는 없었다.
 
 `.codex/config.toml`은 A의 범위 밖이라 보존했다. custom agent 없이 multi-agent만
-켜둔 상태이며 동작 영향은 없다. 처리 방침은 ROADMAP 1.1에서 함께 정한다.
+켜둔 상태이며 동작 영향은 없다. 처리 방침은 ROADMAP 1.2에서 함께 정한다.
 
 ---
 
@@ -319,6 +381,309 @@ git 이력이 주지 못하는 것은 셋이다. 왜 멈췄는지, 무엇을 시
 3. **검사를 먼저 추가하고 실패를 확인한 뒤 통과시킨다.** 통과하는 검사를 나중에
    붙이면 아무것도 검증하지 못한다.
 
-L3 하네스는 1.3(핸드오프 스키마) 이후에만 만들 수 있고, 1.6(의존성 디스패치) 이전에
-반드시 있어야 한다. 1.6은 Phase 1에서 가장 큰 변경이며 검증 없이 진행하지 않는다.
-따라서 1.5를 검증 하네스 작업으로 신설한다.
+L3 하네스는 1.4(핸드오프 스키마) 이후에만 만들 수 있고, 1.7(의존성 디스패치) 이전에
+반드시 있어야 한다. 1.7은 Phase 1에서 가장 큰 변경이며 검증 없이 진행하지 않는다.
+따라서 1.6을 검증 하네스 작업으로 둔다.
+
+1.1(하네스 네이티브 조사)은 코드가 아니라 사실을 산출하므로 L1~L4에 해당하지 않는다.
+검증 기준은 "대조표의 모든 칸에 출처가 있는가" 하나이며 VERIFICATION.md의 L0 절에 있다.
+
+
+---
+
+## D13. 네이티브 기능을 먼저 확인하고 직접 만들지 않는다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+D2~D6에서 설계한 디스패치, 도구 제한, 스킬 바인딩, 컨텍스트 전달은 Claude Code와
+Codex가 이미 네이티브로 제공할 수 있다. 네이티브 기능을 직접 구현하면 유지 비용이
+늘고 하네스 업데이트마다 깨진다.
+
+따라서 구현 전에 하네스별 대조표를 만들고 각 설계 결정을 **네이티브 / 보완 / 충돌**로
+판정한다. 판정 결과를 따른다.
+
+| 판정 | 행동 |
+|---|---|
+| 네이티브 | 우리 설계를 버리고 네이티브를 쓴다 |
+| 보완 | 네이티브 위에 얇게 얹는다. 대체하지 않는다 |
+| 충돌 | 해당 D 항목을 수정한다. 하네스를 이기려 하지 않는다 |
+
+이 조사를 ROADMAP 1.1로 두어 다른 모든 Phase 1 작업보다 앞에 배치한다.
+추측 위에 1.2~1.9를 쌓으면 전부 다시 해야 한다.
+
+
+---
+
+## D14. 역할, 스킬, 도구를 구분해 정의한다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+이 저장소는 "스킬"을 세 가지 다른 뜻으로 써 왔다. manifest 최상위 `"skills"`는 역할
+목록이고, `skills/role-*/SKILL.md`도 역할 계약이며, `feature-orchestrator`만 실제
+스킬이다. 1.5에서 역할별 `skills` 키를 추가하면 뜻이 하나 더 늘어나므로 여기서 고정한다.
+
+| | 역할 (role) | 스킬 (skill) | 도구 (tool) |
+|---|---|---|---|
+| 정체 | 실행 단위 | 재사용 절차 | 접근 수단 |
+| 권한 | `mutationPolicy` 보유 | 없음. 호출한 역할의 권한으로 동작 | 역할에 부여 |
+| 컨텍스트 | 격리된 별도 스레드 | 호출 시 현재 컨텍스트로 로드 | - |
+| 핸드오프 | 주고받는 주체 | 주체가 아님 | 주체가 아님 |
+| 공유 | 1:1 | 여러 역할이 공유 | 여러 역할이 공유 |
+
+판별 기준은 하나다. **"이것이 핸드오프를 주고받는가."** 예면 역할, 아니오면 스킬이나 도구다.
+스킬과 도구는 다시 나눈다. **무엇에 접근하는가는 도구, 어떻게 하는가는 스킬이다.**
+지표 DB 조회는 도구(또는 MCP)이고, 조사 절차는 스킬이다.
+
+### 스킬의 출처와 책임 범위
+
+역할의 `skills` 키는 **그 역할이 호출해도 되는 절차의 허용 목록**이며, 출처는 셋이다.
+
+| 출처 | 우리 책임 | 선언 방식 |
+|---|---|---|
+| 하네스 내장 | 없음 | 이름만 참조 |
+| 이 패키지가 배포 | 작성·렌더링·검증 전부 | `payloads/`로 배포 |
+| 소비자 프로젝트 고유 | 없음 | 이름만 선언, 존재 검증만 |
+
+셋 다 표현 가능해야 하지만 우리가 만들고 유지하는 것은 가운데뿐이다.
+
+### 스킬을 선험적으로 설계하지 않는다
+
+`skills` 키는 만들되 초기값은 대부분 빈 배열로 둔다. 근거는 둘이다.
+
+1. 둘 이상의 역할이 같은 절차를 실제로 중복 서술하기 전까지는 무엇을 뽑아야 할지 알 수 없다.
+2. 1.1 조사 결과에 따라 역할-스킬 바인딩이 하네스에서 표현 불가능할 수 있다.
+   그 경우 미리 만든 스킬 세트는 전부 헛일이 된다.
+
+순서: 1.1에서 바인딩 가능 여부 확인 → 1.5에서 키만 만들고 비워둠 →
+1.8 이후 중복이 실제로 드러나면 추출.
+
+### manifest 최상위 키 이름 변경
+
+역할별 `skills`를 추가하면 한 파일 안에서 `skills`가 두 층위의 다른 뜻이 된다.
+1.5에서 최상위 키를 `skills`에서 `roles`로 바꾼다. 스키마 breaking change이므로
+`bin/cli.js`에 하위 호환 처리를 함께 넣는다.
+
+
+---
+
+## 1.1 네이티브 판정 결과 (2026-09-20)
+
+D13에 따라 D2~D6, D14를 하네스 네이티브 기능과 대조했다. 근거와 출처는
+[HARNESS_CAPABILITIES.md](./HARNESS_CAPABILITIES.md)에 있다.
+
+| 결정 | 판정 | 결과 |
+|---|---|---|
+| D2 의존성 디스패치 | 보완 | 네이티브 위임 위에 산출물 의존성 계산만 얹는다 |
+| D3 병렬 = mutationPolicy | **네이티브** | 판정 규칙은 유지, 스케줄러와 동시성 상한은 네이티브에 위임 |
+| D4 직접 대화 금지 | **네이티브** | 하네스가 이미 강제한다. `blocking_questions` 필드만 추가 |
+| D5 핸드오프 스키마 | 보완 | 유지. 구조화 전달 경로가 없어 task message에 싣는다 |
+| D6 경계 조건 | 부분 | `maxSteps`는 `maxTurns`로 위임, 나머지 셋은 드라이버 |
+| D14 스킬 바인딩 | **네이티브** | `skills:` / `[[skills.config]]`로 렌더링. 프롬프트 지시로 격하되지 않는다 |
+
+**충돌 판정은 없다. D2~D6, D14를 수정하지 않는다.** 우리가 만들 범위가 줄었을 뿐이다.
+
+D4가 네이티브라는 것은 중요하다. Claude 서브에이전트는 대화 이력을 받지 못하고 결과만
+부모로 반환하므로 에이전트 간 직접 대화가 **구조적으로 불가능하다.** D4는 우리가 강제할
+규칙이 아니라 하네스가 이미 강제하는 구조였다.
+
+### 새로 확정된 것
+
+- **역할은 서브에이전트, 스킬은 스킬이다.** 두 하네스 모두 별도 경로와 형식을 갖는다.
+  Claude는 `.claude/agents/<name>.md`, Codex는 `.codex/agents/<name>.toml`
+- **`adapters/claude.json`은 결함이다.** `.claude/skills/<role>/CLAUDE.md`를 생성하는데
+  Claude Code 스킬의 파일명은 `SKILL.md` 고정이다. 현재 Claude 타깃은 설치되어도
+  로드되지 않으며, 역할을 스킬 경로에 둔 것도 잘못이다. 1.2에서 바로잡는다
+- **D9의 worktree 격리는 네이티브다** (`isolation: worktree`). Phase 3.3의 범위가 줄어든다
+
+
+---
+
+## D15. 오케스트레이터는 스킬, 나머지 역할은 서브에이전트로 배포한다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+1.1에서 두 하네스 모두 역할(에이전트)과 스킬이 별도 경로·별도 형식임을 확인했다.
+역할 7개를 어느 쪽으로 배포할지 결정한다.
+
+| 역할 | 배포 단위 | 근거 |
+|---|---|---|
+| `role-orchestrator` | **스킬** | 메인 세션의 라우팅 절차다. 격리된 스레드로 돌 이유가 없고, 핸드오프를 주고받는 주체도 아니다 (D14 판별 기준) |
+| 나머지 6개 | **서브에이전트** | 권한이 다르고 컨텍스트가 격리되며 핸드오프의 주체다 |
+
+타깃별 결과:
+
+| 타깃 | 오케스트레이터 | 나머지 역할 |
+|---|---|---|
+| claude | `.claude/skills/role-orchestrator/SKILL.md` | `.claude/agents/role-*.md` |
+| codex | `.agents/skills/role-orchestrator/SKILL.md` | `.codex/agents/role-*.toml` |
+| cursor | `.cursor/skills/role-orchestrator/SKILL.md` | `.cursor/skills/role-*/SKILL.md` |
+
+Cursor는 1.1 조사 범위 밖이므로 기존 동작을 그대로 유지한다. 별도 조사 후 바꾼다.
+
+### mutationPolicy의 네이티브 권한 매핑
+
+| mutationPolicy | claude | codex |
+|---|---|---|
+| `none` | `tools: Read, Glob, Grep, WebSearch, WebFetch` | `sandbox_mode = "read-only"` |
+| `docs-only` | `tools: Read, Glob, Grep, Write, Edit` | `sandbox_mode = "workspace-write"` |
+| `implementation` | (제한 없음 — 상속) | `sandbox_mode = "workspace-write"` |
+
+**한계**: `docs-only`와 `implementation`의 차이를 경로로 강제하는 네이티브 수단이 없다.
+Claude는 `Bash` 가용 여부로, Codex는 구분 불가로 근사한다. 경로 수준 강제는 1.6 하네스가
+`out_of_scope` 위반으로 탐지한다.
+
+### payload 사본 폐지
+
+`payloads/codex/`의 손으로 쓴 역할 파일(`.codex/agents/*.toml`,
+`.agents/skills/feature-orchestrator/`)을 제거했다. 이제 모든 역할 파일은
+`manifest` + `skills/role-*/SKILL.md`에서 렌더링된다. payload에는 `manifest`로
+표현할 수 없는 것만 남는다 (`AGENTS.block.md`, `config.toml`).
+
+`.codex/config.toml`은 계속 병합한다. `features.multi_agent`와 `agents.enabled`의
+기본값이 `true`이지만(1.1 조사), 소비자가 명시적으로 꺼둔 경우를 덮어써야 하므로
+명시 기록이 맞다.
+
+---
+
+## D16. 역할은 다음 역할을 지명하지 않는다
+
+- 상태: 확정
+- 결정일: 2026-09-20
+
+1.3에서 Stop Conditions에 `role-planner로 반환한다` 같은 대상을 적었다. 이것은
+**역할별 고정 라우팅 표를 계약에 다시 들여온 것**이며 D2에 정면으로 어긋난다.
+D2는 라우팅을 선언에서 계산하고 매 스텝 재계산한다고 정했고, 1.7의 완료 기준은
+"저장소 어디에도 고정 역할 순서 표가 남아있지 않다"이다.
+
+역할은 **막힌 조건과 필요한 능력**만 기술한다. 배정은 오케스트레이터가 한다.
+
+```markdown
+잘못: API 계약 결정이 필요하다. `role-architect`로 반환한다.
+맞음: API 계약 결정이 필요하다. 필요한 것: 구조·계약 결정(`contract-decision`).
+```
+
+지명이 나쁜 이유는 셋이다.
+
+1. **역할을 추가하면 낡는다.** 1.8에서 `role-analyst`와 `role-qa`가 들어오면
+   기존 지명은 최선의 배정이 아니게 되는데, 계약 7개를 손으로 고쳐야 한다.
+2. **하나의 필요가 한 역할에 대응한다고 가정한다.** 근거 수집은 `role-researcher`와
+   `role-analyst`가 나누어 맡을 수 있고, D3에 따라 병렬로 돌 수도 있다.
+   지명은 이 가능성을 미리 닫는다.
+3. **판단 위치가 틀렸다.** 막힌 역할은 자기가 무엇이 없는지만 알고, 누가 그것을
+   채울 수 있는지는 모른다. 전체 상태를 보는 것은 오케스트레이터다.
+
+### 능력 어휘
+
+반환에 쓰는 어휘를 고정한다. `role-orchestrator`의 `## Handling Returned Needs`에
+같은 표가 있으며, 1.7에서 역할의 `capabilities` 선언과 이 어휘를 묶는다.
+
+`product-intent`, `ui-decision`, `code-evidence`, `external-evidence`,
+`contract-decision`, `implementation`, `verification`, `acceptance-criteria`
+
+### 기계적 강제
+
+`validate`가 Stop Conditions 안에서 자기 역할 이외의 `role-*` 언급을 실패로 처리한다.
+고정 라우팅이 계약에 다시 스며드는 것을 사람 검토에 맡기지 않는다.
+
+---
+
+## D17. 도구 허용 목록은 역할 선언에서 도출한다
+
+- 상태: 확정
+- 결정일: 2026-09-21
+
+1.2에서는 어댑터의 `permissions`가 `mutationPolicy`별로 고정된 도구 문자열을 갖고
+있었다. 1.5에서 이것을 버리고 **역할이 선언한 도구에서 도출**한다.
+`toolPolicy: deny-by-default`의 의미가 여기서 실제로 강제된다.
+
+```
+tools = resolve(requiredTools ∪ optionalTools)
+```
+
+고정 목록이 나쁜 이유는 같은 정책의 역할이 서로 다른 도구를 필요로 하기 때문이다.
+`role-architect`와 `role-researcher`는 둘 다 `none`이지만 후자만 웹 검색이 필요하다.
+고정 목록은 둘 다에게 가장 넓은 권한을 준다.
+
+도출 결과:
+
+| 역할 | mutationPolicy | claude `tools` |
+|---|---|---|
+| role-researcher | none | Read, Glob, Grep, WebSearch, WebFetch |
+| role-architect | none | Read, Glob, Grep |
+| role-reviewer | none | Read, Glob, Grep |
+| role-planner | docs-only | Read, Write, Edit, WebSearch, WebFetch, Glob, AskUserQuestion |
+| role-designer | docs-only | Read, Write, Edit, Grep |
+| role-developer | implementation | Read, Write, Edit, Grep, Bash, Agent |
+
+### 읽기 전용 보장
+
+`mutationPolicy: none`은 저장소를 바꿀 수 없다는 **보장**이다. 쓰기 가능한 네이티브
+도구가 하나라도 붙으면 그 보장이 깨진다. `Bash` 한 줄이면 무엇이든 쓸 수 있다.
+
+1.5 작업 중 실제로 이 결함을 발견했다. `role-reviewer`가 `none`인데
+`test_runner`를 선언해 `Bash`를 받고 있었다. 읽기 전용이 아니었다.
+
+해결: reviewer는 검증을 직접 실행하지 않는다. 제공된 `verification` 결과를 읽고
+공백을 finding으로 보고하며, 필요하면 `needs: verification`으로 반환한다.
+게이트를 만드는 것은 `role-qa`의 책임이다 (D7).
+
+어댑터가 `writeCapableTools`를 선언하고, `validate`가 `none` 역할에 그 도구가
+도출되면 실패시킨다. 사람 검토에 맡기지 않는다.
+
+### 타깃별 한계
+
+| 타깃 | deny-by-default 강제 |
+|---|---|
+| claude | ✅ 서브에이전트 `tools` 허용 목록 |
+| codex | ❌ 역할별 허용 목록이 없다. `sandbox_mode`와 `web_search`만 제어 가능 |
+| cursor | 미확인. 1.1 조사 범위 밖이라 매핑을 추측으로 채우지 않았다 |
+
+Codex에서 `deny-by-default`는 계약 문구로만 존재한다. 위반은 1.6 하네스가
+사후 탐지한다. 어댑터에 `toolBindingNote`로 이 사실을 남겼다.
+
+### 조건문 제거
+
+도구 가용성은 렌더링된 `## Tools` 표가 사실로 알려준다. 역할 계약에서
+"`web_search` 사용 가능: ..." 같은 조건문을 제거했다. 에이전트가 자기 도구
+가용성을 추론할 필요가 없어야 한다. `validate`가 렌더링 결과에 조건문이
+남아 있으면 실패시킨다.
+
+---
+
+## D18. 전제(consumes)와 선택 입력(optionalConsumes)을 나눈다
+
+- 상태: 확정
+- 결정일: 2026-09-24
+
+1.7까지 `consumes`는 한 덩어리였다. 엄격히 읽으면 선언된 입력이 **전부** 있어야
+배정 가능하다는 뜻이고, 그 결과 실제로 배정 불가한 역할이 있었다.
+
+- `role-developer`가 `designs_doc`을 소비했다. UI가 없는 기능에서는 그 문서가
+  영영 생산되지 않으므로 developer가 영원히 막힌다.
+- `role-planner`가 `evidence_report`를 소비했다. 조사가 필요 없는 요청에서도
+  researcher를 먼저 돌려야 한다는 뜻이 된다.
+
+1.8에서 역할을 추가하며 드러났다. 새 역할이 늘수록 이 문제는 커진다.
+
+```json
+{
+  "consumes": ["articulate_doc"],
+  "optionalConsumes": ["designs_doc", "architecture_assessment", "test_plan"]
+}
+```
+
+- `consumes`: 배정 전에 **반드시** 충족되어야 하는 전제
+- `optionalConsumes`: 있으면 쓰고 없어도 배정된다
+
+오케스트레이터 명부에 두 열이 따로 실린다. `validate`는 `consumes`에 대해서만
+생산자 존재를 요구한다.
+
+### 왜 처음부터 나누지 않았는가
+
+`handoffInputs`가 "다음 역할에 넘길 입력"이라는 느슨한 의미였고, 디스패치의
+전제 조건으로 쓰일 것을 전제하지 않았다. 1.7에서 그 선언을 배정 근거로 승격하면서
+의미가 바뀌었는데 구조를 함께 바꾸지 않은 것이다. 선언의 용도가 바뀌면
+구조도 다시 봐야 한다.

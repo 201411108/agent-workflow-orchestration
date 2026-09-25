@@ -25,9 +25,12 @@
     "validate": "node bin/cli.js validate",
     "doctor": "node bin/cli.js doctor --target cursor",
     "check:readme": "node scripts/check-readme.js",
+    "check:package": "node scripts/check-package-layers.js",
     "test:smoke": "node scripts/fixture-smoke.js",
     "test:update-check": "node scripts/update-check-test.js",
-    "check": "npm run validate && npm run check:readme && npm run test:smoke && npm run test:update-check",
+    "test:judge": "node tests/eval/judge.test.js",
+    "eval": "node tests/eval/run.js",
+    "check": "npm run validate && npm run check:readme && npm run check:package && npm run test:smoke && npm run test:update-check && npm run test:judge",
     "test": "npm run check"
   },
   "files": [
@@ -36,9 +39,9 @@
     "payloads/",
     "skills/",
     "templates/",
-    "docs/",
-    "scripts/",
     "agent-workflow.manifest.json",
+    "docs/README.ko.md",
+    "docs/CHANGELOG.ko.md",
     "README.md",
     "LICENSE"
   ],

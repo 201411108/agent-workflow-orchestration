@@ -1,0 +1,31 @@
+{
+  "startedAt": "2026-09-21T07:12:14.567Z",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 11,
+          "failures": [
+            {
+              "check": "envelope.source_exists",
+              "detail": "실재하지 않는 출처: /private/var/folders/4z/1ztd4mm1433d249cgs9v9hcc0000gn/T/agent-workflow-eval-lEAzWU/src (glob \"src/**/*\" 결과 없음), /private/var/folders/4z/1ztd4mm1433d249cgs9v9hcc0000gn/T/agent-workflow-eval-lEAzWU (glob \"**/package.json\" 결과 없음)",
+              "category": "계약 결함"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    }
+  ],
+  "checkPassRate": "9/10"
+}

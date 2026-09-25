@@ -1,0 +1,120 @@
+{
+  "startedAt": "2026-09-21T06:31:05.669Z",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R1",
+      "name": "문서 없는 신규 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-orchestrator",
+            "role-planner"
+          ],
+          "roleDispatches": 3,
+          "toolCalls": 16,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R2",
+      "name": "사소한 단일 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 3,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R3",
+      "name": "articulate가 이미 있는 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 4,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R4",
+      "name": "근거 없는 상태의 구조 결정 요구",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [
+            "role-architect"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 3,
+          "failures": [
+            {
+              "check": "envelope.present",
+              "detail": "봉투를 찾지 못했다",
+              "category": "계약 결함"
+            },
+            {
+              "check": "needs.any_of",
+              "detail": "needs=[]",
+              "category": "컨텍스트 부족"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    },
+    {
+      "id": "R5",
+      "name": "버그 수정",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 0,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1"
+    },
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 0,
+          "toolCalls": 0,
+          "failures": [
+            {
+              "check": "envelope.present",
+              "detail": "봉투를 찾지 못했다",
+              "category": "계약 결함"
+            }
+          ]
+        }
+      ],
+      "passRate": "0/1"
+    }
+  ],
+  "checkPassRate": "20/23"
+}

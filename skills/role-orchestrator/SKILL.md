@@ -33,6 +33,12 @@ fallbacks:
 기능 단위 SoT는 `.agent-workflow/specs/features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
 작업을 재개할 때는 configured continuity storage의 `work-items/{work-id}/work.json`, `handoff.md`, `verification.md`를 먼저 읽는다.
 
+## Activation
+
+- 필요한 조건: 요청이 둘 이상의 역할을 거쳐야 하거나, 어떤 역할이 필요한지 불분명하다.
+- 건너뛰어도 되는 조건: 단순 질의, 파일 읽기, 단일 파일의 사소한 수정, 또는 사용자가
+  특정 역할을 직접 지명했다.
+
 ## Inputs
 
 ### Required
@@ -66,7 +72,7 @@ fallbacks:
 - 근거: [1-2줄]
 
 ### active_roles
-- 순서: [role-planner -> role-developer -> role-reviewer]
+- 순서: [이번 스텝에 배정한 역할. 없으면 "없음"]
 - 제외된 역할: [없으면 "없음"]
 
 ### role_handoff_blocks
@@ -84,26 +90,52 @@ fallbacks:
 - ADS 기록 여부:
 ```
 
-## Routing Rules
+## Dispatch
 
-| 요청 유형 | 활성 역할 |
-|-----------|-----------|
-| 신규 기능 또는 상위 기획 | `role-planner -> role-developer -> role-reviewer` |
-| articulate 작성/수정 | `role-planner` |
-| UI/UX 상세화 | `role-designer -> role-developer -> role-reviewer` |
-| 구현 specs 작성 | `role-developer -> role-reviewer` |
-| 코드 구현 | `role-developer -> role-reviewer` |
-| 버그 수정 | `role-developer -> role-reviewer` |
-| 리팩토링 | `role-developer -> role-reviewer` |
-| 복합 요청 | `role-planner -> role-developer -> role-reviewer` |
+**요청 유형을 역할 순서로 바꾸는 표를 쓰지 않는다.** 매 스텝 아래를 다시 계산한다.
+앞 단계에서 드러난 사실이 다음 배정을 바꿀 수 있기 때문이다.
 
-기본 체인은 `role-planner -> role-developer -> role-reviewer`다. 아래 조건이면 해당 역할을 필요한 단계 앞에 삽입한다:
+1. **목표 산출물 집합**을 정한다. 이 요청이 무엇을 만들어야 끝나는지다.
+   앞 단계 결과가 이 집합 자체를 바꿀 수 있다.
+2. 아직 없는 산출물 중 **`consumes`가 이미 충족된 것**을 고른다. 충족 판정의 재료는
+   환경 입력(`user_request`, `workflow_state`)과 지금까지 모인 산출물이다.
+3. 그것을 `produces`하는 역할을 활성화한다. 조건을 만족하는 역할이 여럿이면
+   `## Parallel Dispatch`에 따라 동시에 배정한다.
+4. 산출물과 확인된 사실을 상태에 반영하고 2로 돌아간다.
+5. 목표 산출물이 모두 채워지거나 `## Dispatch Limits`에 걸리면 종료한다.
 
-- 코드/문서 근거 또는 외부 참고 확인이 필요함: planner 앞에 `role-researcher`
-- UI 흐름, 화면, 상태, 접근성 변경 필요: developer 앞에 `role-designer`
-- API, 상태, 호환성 또는 구조 결정이 필요함: developer 앞에 `role-architect`
-- 구현 계획, 코드 변경, 검증 필요: `role-developer`
-- 구현 결과 또는 구현 전 스펙의 품질 확인이 필요함: `role-reviewer`
+역할이 `needs`를 담아 반환하면 `## Handling Returned Needs`를 따른다.
+각 역할의 `capabilities`, `produces`, `consumes`는 패키지의 역할 선언에 있다.
+그 선언을 읽어 배정하며, 여기에 역할 이름을 나열한 표를 두지 않는다.
+
+요청이 단순 질의, 파일 읽기, 사소한 단일 수정이면 목표 산출물 집합이 비어 있다.
+이때는 역할을 배정하지 않고 직접 처리한다. **불필요한 역할을 부르는 것이
+필요한 역할을 빠뜨리는 것보다 흔한 실패다.**
+
+## Parallel Dispatch
+
+`mutation_policy`가 병렬 가능 여부를 결정한다.
+
+| mutation_policy | 병렬 |
+|-----------------|------|
+| `none` | 제한 없음. 파일을 쓰지 않으므로 충돌하지 않는다 |
+| `docs-only` | 대상 문서 경로가 서로소일 때만 |
+| `implementation` | 항상 단독 실행 |
+
+추가 조건: 서로의 산출물을 소비하는 역할은 동시에 배정하지 않는다.
+동시성 상한은 하네스 설정을 따르며 여기서 정하지 않는다.
+
+## Dispatch Limits
+
+아래를 초과하면 진전 없음으로 보고하고 중단한다.
+
+| 조건 | 기본값 |
+|------|--------|
+| 전체 역할 호출 수 | 12 |
+| 같은 역할 재호출 | 2 |
+| 연속 무진전 스텝 | 2 |
+
+무진전은 새 산출물도 새로 확인된 사실도 늘지 않은 스텝을 말한다.
 
 ## Execution Rules
 
@@ -112,6 +144,96 @@ fallbacks:
 3. 문서가 누락된 단계부터 역할을 시작한다. 예: `articulate.md`가 없으면 planner부터 시작한다.
 4. 각 역할 실행 결과는 다음 역할의 입력으로 핵심 결정, 리스크, 미결정 질문만 압축 전달한다.
 5. 최종 응답에는 실제로 확인된 문서 상태와 추론을 구분한다.
+
+## Handling Returned Needs
+
+역할이 중단하고 반환하면 같은 역할을 그대로 다시 부르지 않는다. 반환된 `필요한 것`을
+읽고 그것을 충족할 수 있는 역할을 배정한다. 역할은 다음 역할을 지명하지 않으며,
+배정은 이 오케스트레이터의 책임이다.
+
+- 하나의 `필요한 것`을 여러 역할이 나누어 충족할 수 있다. 필요하면 둘 이상을 활성화한다.
+- 서로 의존하지 않고 `mutation_policy: none`인 역할은 동시에 배정할 수 있다.
+- 충족할 역할이 없으면 임의로 대체하지 말고 누락되는 검토를 사용자에게 알린다.
+- 배정이 끝나면 막혔던 역할을 재개한다. 같은 역할이 세 번째로 호출되면 진전 없음으로 본다.
+
+반환에 쓰는 `필요한 것` 어휘는 다음과 같다. 요청 유형을 역할 순서로 바꾸는 표가 아니라
+능력 어휘이며, 어떤 역할이 어떤 능력을 갖는지는 역할 선언에서 읽는다.
+
+| 필요한 것 | 의미 |
+|-----------|------|
+| `product-intent` | 제품 의도, 목표, 범위 확정 |
+| `ui-decision` | 화면, 흐름, 상태 결정 |
+| `code-evidence` | 코드베이스에서 사실 확인 |
+| `external-evidence` | 외부 자료, 시장, 레퍼런스 확인 |
+| `contract-decision` | API, 상태, 호환성 구조 결정 |
+| `implementation` | 코드 또는 설정 변경 |
+| `verification` | 검증 수단 마련과 실행 |
+| `acceptance-criteria` | 수용 기준 확정 |
+
+## Handoff Contract
+
+역할별 산출물과 별개로, 모든 역할은 아래 봉투를 마지막에 하나 붙여 오케스트레이터에
+반환한다. 형식은 7개 역할이 동일하다.
+
+```yaml
+from: role-orchestrator
+work_id: <work-id 또는 none>
+status: complete | blocked
+produced: [이 실행에서 실제로 만든 산출물 키]
+facts_confirmed:
+  - claim: 확인된 사실
+    source: path/to/file.ts:42
+assumptions:
+  - claim: 검증되지 않은 전제
+    risk: high | medium | low
+blocking_questions: []
+needs: []
+out_of_scope: [이번 실행에서 건드리지 않은 영역]
+```
+
+규칙:
+
+- `source` 없는 주장은 `facts_confirmed`에 넣지 않는다. `assumptions`로 보낸다.
+- `source`로 쓸 수 있는 형태는 셋뿐이다. 서술("코드에서 확인함")은 출처가 아니다.
+  - 파일 경로: `src/greet.js:42` (줄 번호는 선택)
+  - URL: `https://...`
+  - 검색 범위: `glob:**/package.json` — **없음을 확인한 사실**의 출처다.
+    "package.json이 없다"는 사실이며, 그 근거는 어디를 찾았는지다.
+- **아직 만들지 않은 파일은 출처가 아니다.** 쓸 예정이거나 쓰려다 실패한 문서를
+  `facts_confirmed`의 출처로 인용하지 않는다. 실제로 쓴 산출물은 `produced`에,
+  쓰지 못한 이유는 `blocking_questions`에 적는다.
+- `out_of_scope`는 비울 수 있으나 생략할 수 없다. 자율 실행의 최대 실패 모드는
+  멈춤이 아니라 범위가 조금씩 넓어지는 것이다.
+- `blocking_questions`가 비어 있지 않으면 `status: blocked`이며 사용자 확인이 필요하다.
+- `needs`가 비어 있지 않으면 `status: blocked`이며 오케스트레이터가 배정한다.
+  어휘는 `## Stop Conditions`에서 쓰는 것과 같다.
+- **`needs`의 각 항목은 어휘 토큰 하나다. 설명을 붙이지 않는다.**
+  - 맞음: `needs: [ui-decision, contract-decision]`
+  - 틀림: `needs: [ui-decision: 모듈 API 표면 결정]`
+  - 왜 필요한지는 본문에 적는다. `needs`는 오케스트레이터가 기계로 읽는 필드다.
+- 다음 역할을 지명하지 않는다. 배정은 오케스트레이터의 책임이다.
+
+## Done Criteria
+
+아래가 전부 참이면 종료한다.
+
+- `task_classification`, `active_roles`, `role_handoff_blocks`, `final_summary` 네 블록을 모두 작성했다.
+- 활성 역할마다 핸드오프 블록이 정확히 하나씩 있고, 제외된 역할의 블록은 없다.
+- 각 활성 역할의 입력이 상류 역할의 산출물 또는 사용자 요청으로 충족된다.
+- 아직 해결되지 않은 항목이 `final_summary`에 남아 있다.
+
+## Stop Conditions
+
+아래에 해당하면 즉시 중단하고 오케스트레이터로 반환한다.
+**다음 역할을 지명하지 않는다.** 막힌 조건과 `필요한 것`만 기술하면 오케스트레이터가
+능력 선언을 보고 배정한다. 하나의 `필요한 것`을 여러 역할이 나누어 충족할 수도 있고,
+같은 `필요한 것`을 여러 역할이 병렬로 처리할 수도 있다.
+
+- 요청에서 목표를 특정할 수 없어 어떤 역할도 배정할 수 없다. 사용자에게 질문한다.
+- 반환된 `필요한 것`을 충족할 수 있는 역할이 하나도 없다. 누락되는 검토를 명시하고 사용자에게 알린다.
+- 필요한 역할 파일을 열 수 없다. 대체하지 말고 `degraded` 상태와 누락되는 검토를 알린다.
+- 같은 역할이 세 번째로 다시 호출된다. 진전 없음으로 보고한다.
+- 두 번 연속으로 새로운 산출물이나 확인된 사실이 늘지 않았다. 진전 없음으로 보고한다.
 
 ## Fallback Rules
 

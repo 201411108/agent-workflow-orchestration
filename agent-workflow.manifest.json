@@ -1,10 +1,18 @@
 {
   "name": "@hankim.dev/agent-workflow-orchestration",
   "version": "1.1.0",
-  "skills": [
+  "environmentInputs": [
+    "user_request",
+    "workflow_state"
+  ],
+  "roles": [
     {
       "name": "role-orchestrator",
-      "requiredInputs": ["user_request"],
+      "skills": [],
+      "capabilities": [],
+      "requiredInputs": [
+        "user_request"
+      ],
       "requiredOutputs": [
         "task_classification",
         "active_roles",
@@ -12,78 +20,362 @@
         "final_summary"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": ["user_request", "workflow_state"],
-      "handoffOutputs": ["role_handoff_blocks", "final_summary"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["glob_search", "text_search"]
+      "consumes": [
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "workflow_state"
+      ],
+      "produces": [
+        "role_handoff_blocks",
+        "final_summary"
+      ],
+      "requiredTools": [
+        "file_read"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-planner",
-      "requiredInputs": ["user_request"],
+      "skills": [],
+      "capabilities": [
+        "product-intent",
+        "acceptance-criteria"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
       "requiredOutputs": [
         "articulate_doc",
         "open_questions",
         "handoff_notes"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": ["user_request", "evidence_report"],
-      "handoffOutputs": ["articulate_doc", "handoff_notes"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["web_search", "glob_search", "structured_question"]
+      "consumes": [
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "evidence_report",
+        "market_evidence"
+      ],
+      "produces": [
+        "articulate_doc",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "web_search",
+        "glob_search",
+        "structured_question"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-designer",
-      "requiredInputs": ["user_request"],
+      "skills": [],
+      "capabilities": [
+        "ui-decision"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
       "requiredOutputs": [
         "designs_doc",
         "design_risks",
         "handoff_notes"
       ],
       "mutationPolicy": "docs-only",
-      "handoffInputs": ["articulate_doc"],
-      "handoffOutputs": ["designs_doc", "handoff_notes"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["browser", "text_search"]
+      "consumes": [
+        "articulate_doc"
+      ],
+      "optionalConsumes": [],
+      "produces": [
+        "designs_doc",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "browser",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-developer",
-      "requiredInputs": ["user_request"],
-      "requiredOutputs": ["specs_doc", "change_summary", "verification", "followups"],
+      "skills": [],
+      "capabilities": [
+        "implementation"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "specs_doc",
+        "change_summary",
+        "verification",
+        "followups"
+      ],
       "mutationPolicy": "implementation",
-      "handoffInputs": ["articulate_doc", "designs_doc", "architecture_assessment"],
-      "handoffOutputs": ["change_summary", "verification"],
-      "requiredTools": ["file_read", "file_edit"],
-      "optionalTools": ["text_search", "lint_runner", "test_runner", "task_subagent"]
+      "consumes": [
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
+        "designs_doc",
+        "architecture_assessment",
+        "test_plan",
+        "executable_tests"
+      ],
+      "produces": [
+        "specs_doc",
+        "change_summary",
+        "verification"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "text_search",
+        "lint_runner",
+        "test_runner",
+        "task_subagent"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-researcher",
-      "requiredInputs": ["user_request"],
-      "requiredOutputs": ["evidence_report", "unknowns", "handoff_notes"],
+      "skills": [],
+      "capabilities": [
+        "code-evidence"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "evidence_report",
+        "unknowns",
+        "handoff_notes"
+      ],
       "mutationPolicy": "none",
-      "handoffInputs": ["user_request", "workflow_state"],
-      "handoffOutputs": ["evidence_report", "unknowns", "handoff_notes"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["glob_search", "text_search", "web_search"]
+      "consumes": [
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "workflow_state"
+      ],
+      "produces": [
+        "evidence_report",
+        "unknowns",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-architect",
-      "requiredInputs": ["user_request"],
-      "requiredOutputs": ["architecture_assessment", "decision_candidates", "risks", "handoff_notes"],
+      "skills": [],
+      "capabilities": [
+        "contract-decision"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "architecture_assessment",
+        "decision_candidates",
+        "risks",
+        "handoff_notes"
+      ],
       "mutationPolicy": "none",
-      "handoffInputs": ["articulate_doc", "designs_doc", "evidence_report"],
-      "handoffOutputs": ["architecture_assessment", "decision_candidates", "risks", "handoff_notes"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["glob_search", "text_search"]
+      "consumes": [
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
+        "designs_doc",
+        "evidence_report"
+      ],
+      "produces": [
+        "architecture_assessment",
+        "decision_candidates",
+        "risks",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
     },
     {
       "name": "role-reviewer",
-      "requiredInputs": ["user_request"],
-      "requiredOutputs": ["verdict", "findings", "acceptance_check", "required_followups"],
+      "skills": [],
+      "capabilities": [],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "verdict",
+        "findings",
+        "acceptance_check",
+        "required_followups"
+      ],
       "mutationPolicy": "none",
-      "handoffInputs": ["specs_doc", "change_summary", "verification"],
-      "handoffOutputs": ["verdict", "findings", "required_followups"],
-      "requiredTools": ["file_read"],
-      "optionalTools": ["glob_search", "text_search", "test_runner"]
+      "consumes": [
+        "change_summary"
+      ],
+      "optionalConsumes": [
+        "specs_doc",
+        "verification",
+        "executable_tests",
+        "coverage_gaps"
+      ],
+      "produces": [
+        "verdict",
+        "findings",
+        "required_followups"
+      ],
+      "requiredTools": [
+        "file_read"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-analyst",
+      "skills": [],
+      "capabilities": [
+        "external-evidence"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "market_evidence",
+        "metric_report",
+        "opportunity_candidates",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "none",
+      "consumes": [
+        "user_request"
+      ],
+      "optionalConsumes": [
+        "workflow_state"
+      ],
+      "produces": [
+        "market_evidence",
+        "metric_report",
+        "opportunity_candidates",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "web_search"
+      ],
+      "optionalTools": [
+        "glob_search",
+        "text_search"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-qa",
+      "skills": [],
+      "capabilities": [
+        "verification"
+      ],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "test_plan",
+        "executable_tests",
+        "coverage_gaps",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "implementation",
+      "consumes": [
+        "articulate_doc"
+      ],
+      "optionalConsumes": [
+        "designs_doc",
+        "specs_doc"
+      ],
+      "produces": [
+        "test_plan",
+        "executable_tests",
+        "coverage_gaps",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "text_search",
+        "test_runner"
+      ],
+      "toolPolicy": "deny-by-default"
+    },
+    {
+      "name": "role-releaser",
+      "skills": [],
+      "capabilities": [],
+      "requiredInputs": [
+        "user_request"
+      ],
+      "requiredOutputs": [
+        "release_plan",
+        "deploy_result",
+        "rollback_plan",
+        "handoff_notes"
+      ],
+      "mutationPolicy": "implementation",
+      "consumes": [
+        "verdict"
+      ],
+      "optionalConsumes": [
+        "change_summary",
+        "verification"
+      ],
+      "produces": [
+        "release_plan",
+        "deploy_result",
+        "rollback_plan",
+        "handoff_notes"
+      ],
+      "requiredTools": [
+        "file_read",
+        "file_edit"
+      ],
+      "optionalTools": [
+        "text_search",
+        "lint_runner",
+        "test_runner"
+      ],
+      "toolPolicy": "deny-by-default"
     }
   ]
 }

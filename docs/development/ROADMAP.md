@@ -28,8 +28,8 @@
 
 ## 현재 상태
 
-- 진행 단계: **Phase 1 — 1.0 완료, 1.1 미착수**
-- 다음 작업: **1.1 역할 시스템 통합**
+- 진행 단계: **Phase 1 완료.** Phase 2 미착수
+- 다음 작업: **Phase 2 미니 프로젝트 실증** — 먼저 대상 선정이 필요하다 (사용자 결정)
 - 마지막 갱신: 2026-09-20
 
 직전 세션의 맥락과 미해결 항목은 [DEVLOG.md](./DEVLOG.md) 최상단 항목을 읽는다.
@@ -91,32 +91,132 @@
 - [x] `npm run check` 통과 (루트 사본에 의존하는 코드 없음을 사전 확인)
 
 남은 항목: `.codex/config.toml`은 A의 범위 밖이므로 보존했다. 현재는 custom agent 없이
-multi-agent만 켜둔 상태이며 동작에 영향은 없다. 처리 방침은 1.1에서 함께 정한다.
+multi-agent만 켜둔 상태이며 동작에 영향은 없다. 처리 방침은 1.2에서 함께 정한다.
 
-### 1.1 역할 시스템 통합
+### 1.1 하네스 네이티브 기능 조사 및 설계 검증
 
-두 개로 갈라진 역할 시스템을 하나로 합친다. 현재 가장 큰 구조적 결함이다.
+**이후 모든 작업의 형태를 결정하므로 가장 먼저 한다.** 우리가 설계한 것(D2~D6)이
+Claude Code와 Codex가 이미 네이티브로 제공하는 기능과 중복인지, 보완인지, 충돌인지를
+확인한다. 네이티브 기능을 직접 만들면 유지 비용만 늘고 하네스 업데이트에 깨진다.
 
-- [ ] 오케스트레이터 정본을 `skills/role-orchestrator/SKILL.md`로 정한다
-- [ ] `.agents/skills/feature-orchestrator/SKILL.md`를 손으로 쓴 파일에서
-      정본의 렌더링 결과로 바꾼다
-- [ ] custom agent `.toml`을 `manifest` + `SKILL.md`에서 렌더링하도록 바꾼다
-      (현재는 계약과 실행 파일이 따로 관리되어 갈라졌다)
-- [ ] 7개 역할 전부 `payloads/codex/.codex/agents/`로 배포되게 한다
-- [ ] `validate`에 "manifest 역할 수 = 배포되는 agent 수" 검사를 추가한다
+조사 항목:
+
+- [x] **역할의 네이티브 단위** — Claude는 subagent(`.claude/agents/`)와
+      skill(`.claude/skills/`) 중 무엇이 역할에 맞는가. Codex는 custom agent와 skill 중 무엇인가
+- [x] **도구 제한 구문** — 역할별 도구 허용/차단을 네이티브로 거는 방법.
+      1.5의 매핑 테이블이 이것과 중복인지 판정
+- [x] **스킬 바인딩 구문** — 특정 역할에 특정 스킬만 노출하는 네이티브 방법이 있는가 (1.5 입력).
+      **표현 불가능하면 1.5의 `skills` 키는 프롬프트 지시로 격하된다**
+- [x] **스킬의 해결 경로** — 하네스 내장/패키지 배포/소비자 고유 스킬을 각각 어떻게
+      참조하는가. 이름 충돌 시 우선순위는 무엇인가 (D14의 출처 3종 확인)
+- [x] **위임 방식** — 역할 간 호출을 네이티브로 어떻게 하는가. D2 디스패처가 이를 대체하는가 보완하는가
+- [x] **병렬 실행** — 동시 실행을 네이티브로 지원하는가. D3의 전제 확인
+- [x] **컨텍스트 전달** — 서브에이전트에 컨텍스트를 넘기는 네이티브 경로.
+      D5 핸드오프가 중복인지 판정
+
+확인이 필요한 구체적 의심 지점:
+
+> `adapters/claude.json`은 `skillsDir: ".claude/skills"` + `fileName: "CLAUDE.md"`로
+> `.claude/skills/role-planner/CLAUDE.md`를 생성한다. Claude Code의 스킬 탐색 규약과
+> 일치하는지 확인이 필요하다. 불일치라면 **Claude 타깃은 설치돼도 로드되지 않는 상태**이며,
+> 1.2 렌더링 설계와 어댑터 스키마가 함께 바뀐다.
+
+산출물:
+
+- [x] `docs/development/HARNESS_CAPABILITIES.md` — 하네스별 기능 대조표.
+      각 항목에 확인한 공식 문서 출처를 남긴다
+- [x] D2~D6 각각에 **네이티브 / 보완 / 충돌** 판정 기록
+- [x] 충돌 판정이 나온 결정은 `DESIGN_DECISIONS.md`를 먼저 수정하고 로드맵을 조정 — **충돌 없음**
 
 완료 기준:
-- `npm run check` 통과
-- 새 Codex 세션에서 `/agent`에 7개 역할이 전부 보인다
-- 오케스트레이터 라우팅 정의가 저장소에 단 한 곳만 존재한다
+- [x] 대조표의 모든 항목에 출처가 있다. 미확인 항목은 `미확인`으로 명시했다
+- [x] Claude 어댑터 `fileName` 문제에 결론이 났다 — **결함 확정**
+- [x] 충돌 판정 없음. D2~D6, D14 모두 유지
 
-### 1.2 역할 계약에 Activation / Done / Stop 추가
+**결과**: D3·D4·D14는 네이티브, D2·D5는 보완, D6는 부분 네이티브.
+Claude 타깃은 현재 설치되어도 로드되지 않는 상태로 확인됐다.
+
+### 1.2 역할 시스템 통합
+
+두 개로 갈라진 역할 시스템을 하나로 합친다. **1.1 결과로 Claude 타깃 재구성이
+범위에 추가됐다.**
+
+⚠️ **먼저**: 현재 Claude 타깃은 `.claude/skills/<role>/CLAUDE.md`를 생성하는데
+Claude Code 스킬 파일명은 `SKILL.md` 고정이라 **설치되어도 로드되지 않는다.**
+역할을 스킬 경로에 둔 것도 잘못이다. 역할은 서브에이전트다.
+
+- [x] **Claude 타깃을 역할=서브에이전트로 재구성한다.** `.claude/agents/<role>.md`,
+      Markdown + YAML frontmatter
+- [x] **어댑터 스키마를 바꾼다.** `fileName` 단일 값으로는 부족하다.
+      타깃마다 역할 경로와 스킬 경로가 분리되고 파일 형식도 다르다 (Markdown / TOML)
+- [x] **`mutationPolicy` → 네이티브 권한 키 렌더링 표**를 만든다
+      (Claude `permissionMode`/`tools`, Codex `sandbox_mode`)
+- [x] **`.codex/config.toml` 처리 결정.** `features.multi_agent`와 `agents.enabled`는
+      기본값이 `true`이므로 payload의 config는 `max_concurrent_threads_per_session`만
+      실질적 의미를 갖는다. 루트에 남겨둔 파일도 함께 정리한다
+
+- [x] 오케스트레이터 정본을 `skills/role-orchestrator/SKILL.md`로 정한다
+- [x] `.agents/skills/feature-orchestrator/SKILL.md`를 손으로 쓴 파일에서
+      정본의 렌더링 결과로 바꾼다
+- [x] custom agent `.toml`을 `manifest` + `SKILL.md`에서 렌더링하도록 바꾼다
+      (현재는 계약과 실행 파일이 따로 관리되어 갈라졌다)
+- [x] 7개 역할 전부 배포되게 한다 (오케스트레이터는 스킬, 나머지 6개는 에이전트 — D15)
+- [x] `validate`에 "manifest 역할 수 = 배포 파일 수" 검사를 추가한다
+
+완료 기준:
+- [x] `npm run check` 통과
+- [x] 오케스트레이터 라우팅 정의가 저장소에 단 한 곳만 존재한다
+- [x] **Claude 실제 로드 검증 통과.** 서브에이전트 6개 + 오케스트레이터 스킬 전부 노출
+- [x] Codex `role-orchestrator` 스킬 실제 로드 검증 통과
+- [x] 생성된 TOML 6개 `tomllib` 파싱 및 `sandbox_mode` 일치 확인
+- [ ] Codex custom agent 노출 — **trust 게이트로 미확인.** 프로젝트가 untrusted면
+      `.codex/` 레이어 전체가 스킵된다 (우리 결함 아님, 근거는 HARNESS_CAPABILITIES 9절).
+      Codex 사용량 한도로 2026-09-21 이후 재시도
+
+### 1.2b 레거시 경로 마이그레이션
+
+1.2에서 배포 경로가 바뀌어 기존 설치본에 고아 파일이 남는다. 실측 결과:
+
+```
+구버전 설치 → 신버전 update 실행 후
+  .claude/agents/role-*.md              ← 새로 생성되고 state에 기록됨 (정상)
+  .claude/skills/role-orchestrator/SKILL.md  ← 정상
+  .claude/skills/role-*/CLAUDE.md       ← 7개 고아. state에서 빠져 uninstall로도 안 지워진다
+```
+
+파괴적이지는 않다. 구 파일은 Claude Code가 애초에 로드하지 않았으므로 무해하지만,
+`uninstall` 후에도 남아 사용자 저장소를 더럽힌다.
+
+`adapters/*.json`의 `legacyRolePaths` 키가 이 작업의 입력이다. 현재는 선언만 되어 있고
+코드가 읽지 않는다.
+
+- [x] 타깃 공통 `getLegacyRolePlan(adapter, targetState)` 추가. 어댑터의
+      `legacyRolePaths`를 입력으로 쓴다
+- [x] 기록된 해시로 소유권이 증명될 때만 제거한다. 증명 불가 파일은 **보존하고 보고**한다
+      (중단하지 않는다 — 구 파일은 이미 로드되지 않으므로 갱신 전체를 막을 이유가 없다)
+- [x] 1.0.x Codex 레거시 경로(`.codex/skills/role-*/AGENT.md`) 처리를 유지한다
+- [x] `update`와 `uninstall` 양쪽에 연결한다
+- [x] 스모크 테스트에 구 레이아웃 합성 → update → 고아 없음 시나리오를 추가한다
+
+- [x] **추가로 발견한 회귀 수정.** 1.2가 state 키 형식을 `<role>/<fileName>`에서
+      프로젝트 상대 경로로 바꾸면서 **기존 cursor 설치본이 update를 전혀 하지 못했다**
+      (소유권 해시를 못 찾아 전부 conflict). `findRecordedHash`가 구 키를 폴백으로
+      본다. 단, 파일이 새 경로에 실제로 존재할 때만 적용한다 — 없으면 경로 이동이지
+      소유권 위반이 아니다
+
+완료 기준:
+- [x] 구버전 설치본을 update하면 구 경로 파일이 남지 않는다 (cursor/claude/codex 실측)
+- [x] 사용자가 수정한 구 파일은 제거되지 않고 경로가 보고된다 (`[kept]`)
+- [x] 사이드카 파일은 보존된다
+- [x] update 없이 바로 uninstall해도 잔여 파일이 없다
+
+### 1.3 역할 계약에 Activation / Done / Stop 추가
 
 출력 템플릿은 이미 충분하므로 건드리지 않는다. 빠진 것은 "언제 시작하고 언제 끝나고
 언제 멈추는가"다.
 
-- [ ] 7개 SKILL.md 전부에 아래 세 섹션을 추가한다
-- [ ] `validate`가 세 섹션의 존재를 강제하도록 한다
+- [x] 7개 SKILL.md 전부에 아래 세 섹션을 추가한다
+- [x] `validate`가 세 섹션의 존재를 강제하도록 한다
 
 ```markdown
 ## Activation
@@ -135,28 +235,76 @@ multi-agent만 켜둔 상태이며 동작에 영향은 없다. 처리 방침은 
 중단 조건이다.
 
 완료 기준:
-- 7개 SKILL.md 전부 세 섹션 보유, `validate` 통과
-- Done Criteria의 모든 항목이 사람이 참/거짓을 판정할 수 있는 문장이다
+- [x] 7개 SKILL.md 전부 세 섹션 보유, `validate` 통과
+- [x] Stop Conditions가 다음 역할을 지명하지 않고 필요한 능력만 기술한다 (D16).
+      `validate`가 타 역할 언급을 실패로 처리한다
+- [x] Done Criteria의 모든 항목이 사람이 참/거짓을 판정할 수 있는 문장이다.
+      전수 검토 후 주관적이던 2건(reviewer의 "그대로 실행할 수 있는 형태",
+      researcher의 "다시 탐색하지 않고 판단할 수 있는")을 확인 가능한 문장으로 바꿨다
+- [x] 세 섹션이 claude / codex / cursor 배포물에 모두 반영된다 (실측)
 
-### 1.3 핸드오프 스키마 고정
+### 1.4 핸드오프 스키마 고정
 
 D5를 구현한다.
 
-- [ ] `templates/handoff-template.md`를 frontmatter + 본문 구조로 교체한다
-- [ ] 7개 SKILL.md의 `handoff_notes` 출력 형식을 새 스키마로 통일한다
-- [ ] `facts_confirmed` 항목에 출처 경로를 필수로 만든다
-- [ ] `out_of_scope`를 필수 필드로 만든다
-- [ ] `blocking_questions` 반환 프로토콜(D4)을 오케스트레이터 계약에 명시한다
+- [x] `templates/handoff-template.md`를 봉투 구조로 교체한다
+- [x] 7개 SKILL.md 전부에 `## Handoff Contract` 봉투를 추가한다.
+      역할별 산출물(payload)과 분리된 공통 봉투(envelope)로 설계했다
+- [x] `facts_confirmed` 항목에 출처를 필수로 만든다
+- [x] `out_of_scope`를 필수 필드로 만든다
+- [x] `blocking_questions` 반환 프로토콜(D4)을 봉투와 오케스트레이터 계약에 명시한다
+- [x] 핸드오프에 `needs` 필드를 추가한다 (D16)
+- [x] `to` 필드를 두지 않는다. 역할이 다음 역할을 지명하는 것은 D16 위반이다
+- [x] `validate`가 봉투 9개 필드와 `from`이 자기 역할인지를 검사한다
 
 완료 기준:
-- 역할 하나를 수동 실행했을 때 스키마를 지킨 핸드오프가 나온다
-- 출처 없는 주장이 `facts_confirmed`가 아니라 `assumptions`로 간다
+- [x] 역할 하나를 수동 실행했을 때 스키마를 지킨 핸드오프가 나온다.
+      `role-planner` 서브에이전트를 실제 실행해 봉투를 받고 기계 판정으로 검증했다
+- [x] 출처 없는 주장이 `facts_confirmed`가 아니라 `assumptions`로 간다.
+      실행 결과: facts 6개 전부 출처 보유, assumptions 8개 전부 출처 없음, risk 8/8 표기
+- [x] `status`와 `blocking_questions`의 일관성이 유지된다 (실행 결과 `blocked` 일치)
+- [x] 실행 결과가 다음 역할을 지명하지 않는다 (D16 준수 확인)
 
-### 1.4 도구 매핑 테이블
+### 1.5 역할별 스킬·도구 바인딩
 
-- [ ] `adapters/*.json`에 `tools` 키를 추가하고 추상 도구명 → 타깃 실제 도구를 매핑한다
-- [ ] 매핑이 `null`인 도구는 렌더링 시 조건문을 제거하고 fallback 경로만 남긴다
-- [ ] `validate`가 manifest에 등장하는 모든 도구명의 매핑 존재를 검사한다
+각 역할이 **어떤 스킬과 도구를 쓸 수 있는지** 선언으로 고정하고, 타깃의 네이티브
+구문으로 렌더링한다. 1.1의 조사 결과에 따라 형태가 정해진다 — 네이티브 구문이 있으면
+그것으로 렌더링하고, 없는 타깃은 프롬프트 지시로 대체한다.
+
+현재는 manifest에 `requiredTools`/`optionalTools`가 추상 이름으로만 있고 매핑이 없으며,
+"역할이 호출할 수 있는 스킬"이라는 개념 자체가 없다.
+
+- [x] **manifest 최상위 키를 `skills` → `roles`로 변경한다.** 역할별 `skills`를
+      추가하면 한 파일에서 `skills`가 두 뜻이 된다. `bin/cli.js`에 하위 호환 처리 포함
+- [x] manifest 역할에 `skills` 키를 추가한다 (역할이 호출 가능한 절차의 허용 목록).
+      **초기값은 빈 배열.** 스킬을 선험적으로 설계하지 않는다 (D14)
+- [x] `toolPolicy`를 추가한다. 기본값은 `deny-by-default` — 선언되지 않은 도구는 쓰지 않는다
+- [x] `adapters/*.json`에 `tools` 매핑을 추가하고 타깃 네이티브 구문으로 렌더링한다.
+      `skills` 매핑은 모든 역할의 `skills`가 빈 배열이라 아직 필요 없다 (D14: 선험적 설계 금지).
+      역할이 실제로 스킬을 선언할 때 추가한다
+- [x] 매핑이 `null`인 도구는 `## Tools` 표에 "없음"으로 표시하고 조건문을 제거한다
+- [x] `validate`가 manifest의 모든 도구명 매핑 존재를 검사한다
+- [x] **추가: 도구를 역할 선언에서 도출한다 (D17).** 고정 목록은 같은 정책의 역할에
+      가장 넓은 권한을 준다
+- [x] **추가: 읽기 전용 보장 검사.** 1.5 중 `role-reviewer`가 `none`인데
+      `test_runner` → `Bash`를 받아 읽기 전용이 아니었다. 어댑터의
+      `writeCapableTools`로 기계 검사한다
+
+용어는 D14에서 고정했다. 핸드오프를 주고받으면 역할, 아니면 스킬이나 도구이며,
+무엇에 접근하는가는 도구, 어떻게 하는가는 스킬이다.
+
+```json
+{
+  "name": "role-analyst",
+  "skills": [],
+  "requiredTools": ["file_read"],
+  "optionalTools": ["web_search", "metric_query"],
+  "toolPolicy": "deny-by-default"
+}
+```
+
+`skills`가 비어 있는 것이 정상 초기 상태다. 지표 조회처럼 무언가에 **접근**하는 것은
+스킬이 아니라 도구로 선언한다.
 
 ```json
 "tools": {
@@ -166,76 +314,125 @@ D5를 구현한다.
 ```
 
 완료 기준:
-- 렌더링된 SKILL.md에 "해당 도구를 쓸 수 있으면"류의 조건문이 남지 않는다
-- 에이전트가 자기 도구 가용성을 추론할 필요가 없다
+- [x] 렌더링 결과에 도구 가용성 조건문이 남지 않는다. `validate`가 검사한다
+- [x] 에이전트가 자기 도구 가용성을 추론할 필요가 없다. `## Tools` 표가 사실을 준다
+- [x] 역할별 도구 허용 목록이 타깃 네이티브 구문으로 렌더링된다
+      (claude `tools:` frontmatter, codex `web_search`).
+      네이티브 수단이 없는 타깃은 `toolBindingNote`에 기록했다
+- [ ] 선언되지 않은 도구를 역할이 사용하면 탐지된다 — **1.6 하네스에서 구현**
+- [x] manifest 최상위 키가 `roles`이고, 구 `skills` 키를 가진 파일도 동작한다 (실측)
 
-### 1.5 동작 검증 하네스
+### 1.6 동작 검증 하네스
 
-L3 동작 검증을 만든다. 1.3에서 핸드오프 스키마가 생겨야 판정 기준이 존재하므로
-그 이후에만 만들 수 있고, **1.6 착수 전까지 반드시 있어야 한다.**
-1.6은 Phase 1에서 가장 큰 변경이며 검증 없이 진행하지 않는다 (D12).
+L3 동작 검증을 만든다. 1.4에서 핸드오프 스키마가 생겨야 판정 기준이 존재하므로
+그 이후에만 만들 수 있고, **1.7 착수 전까지 반드시 있어야 한다.**
+1.7은 Phase 1에서 가장 큰 변경이며 검증 없이 진행하지 않는다 (D12).
 
-- [ ] `tests/eval/cases/` 시나리오 파일 형식 확정 (고정 입력 + 기대값)
-- [ ] 라우팅 케이스 R1~R5 작성 — VERIFICATION.md의 표 참조
-- [ ] 판정기 구현: 핸드오프 필수 필드, 출처 경로 실재, 선택된 역할 집합,
-      `out_of_scope` 위반(git diff), 스텝/재진입 상한
-- [ ] n회 반복 실행과 통과율 집계 (`npm run eval`)
-- [ ] 실패 회차를 계약 결함 / 컨텍스트 부족 / 모델 변동으로 분류해 기록
-- [ ] 결과를 `docs/development/eval-history/`에 남긴다
+- [x] `tests/eval/cases/` 시나리오 파일 형식 확정 (frontmatter + 근거 설명)
+- [x] 라우팅 케이스 R1~R5 + 봉투 케이스 R6 작성
+- [x] **판정기(`tests/eval/judge.js`)를 실행기와 분리했다.** 모델을 호출하지 않는
+      순수 모듈이라 `npm run check`에서 매번 자체 검증된다
+- [x] 판정기 구현: 봉투 9개 필드, 출처 실재, assumptions 출처 부재,
+      status 일관성, needs 어휘, D16 역할 지명, 라우팅 기대/금지, 스텝 상한
+- [x] n회 반복 실행과 통과율 집계 (`npm run eval -- --runs 5`)
+- [x] 실패를 계약 결함 / 컨텍스트 부족 / 모델 변동으로 분류해 기록
+- [x] 결과를 `docs/development/eval-history/`에 남긴다
+
+**모드 분리**: `routing`은 역할 선택과 스텝만, `role`은 봉투만 판정한다.
+부모 스트림에는 서브에이전트 내부 도구가 나타나지 않으므로 라우팅 모드에서
+관찰되는 도구는 메인 세션의 것이며 역할 계약의 대상이 아니다. 이를 구분하지 않아
+첫 실행이 거짓 실패를 냈다.
 
 완료 기준:
-- 현재 역할 구성으로 `npm run eval`이 돌고 통과율이 출력된다
-- 핸드오프에서 필수 필드를 일부러 빼면 판정기가 실패를 낸다 (검사가 실제로 동작)
-- 실패 원인 3분류가 결과에 기록된다
+- [x] 현재 역할 구성으로 `npm run eval`이 돌고 통과율이 출력된다.
+      첫 유효 베이스라인: **40/41 검사, 5/6 케이스**
+- [x] 필수 필드를 빼면 판정기가 실패를 낸다. `judge.test.js`가 위반 봉투 12종과
+      관찰기 회귀를 모델 없이 검증한다
+- [x] 실패 원인 3분류가 결과에 기록된다
 
-### 1.6 능력 선언과 의존성 디스패치
+- [x] **R6 발견을 `--runs 5`로 분류하고 해결했다.** 2/5 → 5/5.
+      원인이 셋이었다: 계약 공백 3건, 하네스 환경 1건(쓰기 권한 없이 docs-only 역할 실행),
+      **제품 렌더링 결함 1건**(배포 파일의 `Source:`가 소비자에 없는 경로를 가리킴).
+      임계값은 낮추지 않았다. 경위는 `eval-history/README.md` 참조
+
+**1.7 비교 기준 베이스라인**: 41/41 검사, 6/6 케이스 (`2026-09-23T14-38-25`)
+
+### 1.7 능력 선언과 의존성 디스패치
 
 D2의 구현. 고정 체인을 폐기하고 라우팅을 선언에서 계산한다.
-**이 작업이 끝나면 1.7의 역할 추가가 거의 공짜가 된다.**
+**이 작업이 끝나면 1.8의 역할 추가가 거의 공짜가 된다.**
 
-- [ ] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다
-- [ ] 오케스트레이터 계약을 고정 라우팅 표에서 의존성 해소 절차로 교체한다
-- [ ] D3의 병렬 규칙을 오케스트레이터 계약에 명시한다
-- [ ] D6의 경계 조건을 오케스트레이터 계약에 명시한다
+- [x] manifest 각 역할에 `capabilities`, `produces`, `consumes`를 추가한다.
+      `consumes`/`produces`는 기존 `handoffInputs`/`handoffOutputs`를 **이름만 바꿨다**.
+      새 키를 더하면 진실 원본이 둘이 된다. `loadManifest`가 구 키도 읽는다.
+      `capabilities`는 D16의 능력 어휘와 같은 값을 쓴다
+      (`product-intent`, `ui-decision`, `code-evidence`, `external-evidence`,
+      `contract-decision`, `implementation`, `verification`, `acceptance-criteria`)
+- [x] `validate`가 `capabilities`를 D16 어휘로 제한하고, 소비 키의 생산자 존재를 검사한다.
+      제공자가 없는 능력은 실패가 아니라 `[gap]`으로 보고한다
+      (현재 `external-evidence`, `verification` — 1.8이 채운다)
+- [x] 오케스트레이터 계약을 고정 라우팅 표에서 의존성 해소 절차로 교체한다
+- [x] D3의 병렬 규칙을 `## Parallel Dispatch`로 명시한다
+- [x] D6의 경계 조건을 `## Dispatch Limits`로 명시한다
       (Phase 3에서 드라이버가 이 값을 기계적으로 강제한다)
-- [ ] `skills/role-orchestrator/SKILL.md`와 렌더링된 오케스트레이터에서
-      하드코딩된 라우팅 표를 제거한다
+- [x] 하드코딩된 라우팅 표를 제거한다. `validate`가 `role-a -> role-b` 형태의
+      체인 표기를 실패로 처리해 재유입을 막는다
+- [x] **렌더러가 오케스트레이터에 전체 역할 명부를 주입한다.** 자기 선언만으로는
+      의존성 해소가 불가능하다. 이것이 빠져 있어 1.7이 성립하지 않을 뻔했다
+- [x] `role-developer`의 `produces`에 `specs_doc`을 추가한다. `role-reviewer`가
+      소비하는데 생산자가 선언되지 않은 구멍이었다
 
 완료 기준:
-- **1.5 하네스의 라우팅 케이스 전체를 임계값 이상으로 통과한다 (전후 비교 필수)**
-- 저장소 어디에도 `요청 유형 → 고정 역할 순서` 표가 남아있지 않다
-- 같은 요청에 대해 상황(기존 문서 유무)에 따라 다른 역할 조합이 선택된다
-- `role-researcher`와 `role-analyst`처럼 `mutationPolicy: none`인 역할이
-  동시에 배정될 수 있다
+- [x] **1.6 하네스 전후 비교.** 이전 41/41 6/6 (`2026-09-23T14-38-25`) →
+      이후 41/41 6/6 (`2026-09-24T01-33-34`). 회귀 없음
+- [x] 저장소와 전 타깃 배포물 어디에도 고정 역할 체인이 남아있지 않다 (실측)
+- [x] 상황에 따라 다른 역할 조합이 선택된다. R1(문서 없음)은 planner를 배정하고
+      R3(articulate 존재)은 역할을 배정하지 않는다. R5는 베이스라인에서 직접 처리,
+      1.7에서 developer 배정 — 둘 다 기대를 만족하며 표가 아니라 계산임을 보여준다
+- [ ] `mutationPolicy: none`인 역할의 동시 배정 — **1.8 이후 검증.**
+      현재 `none` 역할 중 같은 스텝에 배정 가능한 조합이 나오는 케이스가 없다
 
-### 1.7 신규 역할 3개
+### 1.8 신규 역할 3개
 
 D1의 기준으로 도출된 역할만 추가한다.
 
-- [ ] `role-analyst` — 외부 시장/경쟁/유저 지표. `mutationPolicy: none`.
+- [x] `role-analyst` — 외부 시장/경쟁/유저 지표. `mutationPolicy: none`.
       산출물: `market_evidence`, `metric_report`, `opportunity_candidates`.
       체인의 **앞**(신규 기획)과 **뒤**(배포 후 피드백) 양쪽에 등장한다
-- [ ] `role-qa` — 수용 기준을 실행 가능한 테스트로. `mutationPolicy: implementation`
+- [x] `role-qa` — 수용 기준을 실행 가능한 테스트로. `mutationPolicy: implementation`
       (테스트 파일 경로로 한정). 산출물: `test_plan`, `executable_tests`, `coverage_gaps`.
       **`role-developer` 앞에 배치한다** (D7)
-- [ ] `role-releaser` — 빌드/배포/롤백. `mutationPolicy: implementation`.
+- [x] `role-releaser` — 빌드/배포/롤백. `mutationPolicy: implementation`.
       Phase 3.1에서 활성화하되 계약은 여기서 만든다
-- [ ] 기존 `role-researcher`의 본문을 내부 코드/문서 근거 수집으로 좁힌다
-      (현재 이름과 달리 본문이 전부 코드 조사이며, 외부 조사는 `role-analyst`로 간다)
+- [x] 기존 `role-researcher`의 본문을 내부 근거 수집으로 좁힌다.
+      `web_search`를 도구 선언에서 제거해 **경계를 도구로 강제**했다.
+      researcher는 `Read, Glob, Grep`, analyst는 `+ WebSearch, WebFetch`
+- [x] **추가: `consumes`/`optionalConsumes` 분리 (D18).** 한 덩어리로 두면
+      `designs_doc`이 없는 기능에서 developer가 영영 배정되지 않는다.
+      1.8에서 역할을 늘리며 드러난 기존 결함이다
 
 완료 기준:
-- 총 10개 역할이 배포되고 `/agent`에서 확인된다
-- 라우팅 표를 수정하지 않고 선언 추가만으로 동작한다 (1.6 검증)
+- [x] 총 10개 역할이 배포된다 (에이전트 9 + 오케스트레이터 스킬 1, 실측)
+- [x] **라우팅 표를 한 줄도 수정하지 않고 선언 추가만으로 동작한다.**
+      신규 `role-analyst`를 배정하는 R7을 추가했고 통과했다. 1.7의 실질 검증이다
+- [x] 하네스 51/51, 7/7 케이스 (`2026-09-24T02-13-53`)
+- [x] `validate`의 `[gap]` 경고가 사라졌다. `external-evidence`는 analyst가,
+      `verification`은 qa가 채운다
 
-### 1.8 의존성 그래프 검증
+### 1.9 의존성 그래프 검증
 
-- [ ] `validate`에 추가: 모든 역할의 `consumes`가 상류 역할의 `produces`에 존재하는지
-- [ ] `validate`에 추가: 의존성 그래프에 순환이 없는지
-- [ ] `validate`에 추가: 도달 불가능한 역할이 없는지
+- [x] `validate`에 추가: 모든 역할의 `consumes`가 상류 역할의 `produces`에 존재하는지 (1.7에서 선행)
+- [x] `validate`에 추가: 의존성 그래프에 순환이 없는지.
+      간선은 `consumes`로만 만든다. `optionalConsumes`는 없어도 배정되므로 교착을 만들지 않는다
+- [x] `validate`에 추가: 도달 불가능한 역할이 없는지.
+      환경 입력에서 출발하는 고정점 계산으로 판정한다
 
 완료 기준:
-- 존재하지 않는 산출물을 `consumes`에 넣으면 `npm run check`가 실패한다
-- 역할 10개의 그래프가 기계적으로 검증된다
+- [x] 존재하지 않는 산출물을 `consumes`에 넣으면 `npm run check`가 실패한다
+- [x] 역할 10개의 그래프가 기계적으로 검증된다.
+      `validate`가 `[graph] 10 role(s) reachable, no dependency cycles`를 보고한다
+- [x] 세 실패 유형을 각각 주입해 검사가 잡는 것을 확인했다 (D12):
+      순환 / 자기 산출물 전제 / 도달 불가 역할에 의존하는 연쇄
 
 ---
 
@@ -324,14 +521,16 @@ D8의 구현. `bin/cli.js`에 `child_process`가 들어가는 첫 지점.
 ## 의존성 요약
 
 ```
-1.0 레이어 경계 확정 (사용자 결정)
+1.0 레이어 경계 확정 ✅
   ↓
-1.1 시스템 통합
-  ├─→ 1.2 Activation/Done/Stop ─┐
-  ├─→ 1.3 핸드오프 스키마 ───────┤
-  └─→ 1.4 도구 매핑 ─────────────┴─→ 1.5 검증 하네스
+1.1 하네스 네이티브 조사 ← 이후 모든 작업의 형태를 결정
+  ↓
+1.2 시스템 통합
+  ├─→ 1.3 Activation/Done/Stop ─┐
+  ├─→ 1.4 핸드오프 스키마 ───────┤
+  └─→ 1.5 스킬·도구 바인딩 ──────┴─→ 1.6 검증 하네스
                                           ↓
-                                     1.6 의존성 디스패치 ─→ 1.7 신규 역할 ─→ 1.8 그래프 검증
+                                     1.7 의존성 디스패치 ─→ 1.8 신규 역할 ─→ 1.9 그래프 검증
                                                                                     │
                                                     Phase 2 미니 프로젝트 ←──────────┘
                                                     (역할 정의 1회 되감기)
