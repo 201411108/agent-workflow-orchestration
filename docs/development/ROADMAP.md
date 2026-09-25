@@ -447,8 +447,12 @@ Phase 1을 닫으며 열려 있는 것. Phase 2 착수를 막지는 않는다.
       9개 역할이 하나도 로드되지 않았다. 1.5부터 그 상태로 배포되고 있었다
 - [x] ~~Codex 오케스트레이터가 봉투를 산출하지 않는 문제~~ — 위 결함의 증상이었다.
       역할이 로드되니 R6이 통과한다
-- [ ] **Codex R4의 `needs.any_of` 실패 분류.** 베이스라인 50/51에서 유일한 실패다.
-      `--runs 5`로 계약 결함인지 모델 변동인지 구분한다
+- [x] **Codex R4를 분류하고 고쳤다.** 원인 셋 중 셋 다 계약 결함이었다.
+      봉투 예시 복사, Stop Conditions 자기모순, 빈 목록 허용 규칙 부재.
+      1/5 → 3~4/5. `source_exists`와 예시 복사는 0건으로 제거됐다
+- [ ] **R4 잔차**: `needs: []` (1/5)과 `from: role-orchestrator` (1/5).
+      후자는 Codex가 서브에이전트 봉투를 표면화하는 방식의 문제이며 Claude에서는
+      같은 케이스가 통과한다. 경위는 `eval-history/README.md`
 - [ ] Codex 라우팅은 부모 스트림에서 관찰할 수 없다. 역할 이름을 알려면 다른 경로가
       필요하다 (근거는 HARNESS_CAPABILITIES 9절)
 - [ ] `mutationPolicy: none` 역할의 동시 배정 케이스 (researcher + analyst)

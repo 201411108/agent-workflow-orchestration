@@ -70,7 +70,7 @@ fallbacks:
 ## Handoff Contract
 
 역할별 산출물과 별개로, 모든 역할은 아래 봉투를 마지막에 하나 붙여 오케스트레이터에
-반환한다. 형식은 7개 역할이 동일하다.
+반환한다. 형식은 모든 역할이 동일하다.
 
 ```yaml
 from: role-architect
@@ -78,10 +78,10 @@ work_id: <work-id 또는 none>
 status: complete | blocked
 produced: [이 실행에서 실제로 만든 산출물 키]
 facts_confirmed:
-  - claim: 확인된 사실
-    source: path/to/file.ts:42
+  - claim: <확인된 사실>
+    source: <파일 경로>:<줄 번호>
 assumptions:
-  - claim: 검증되지 않은 전제
+  - claim: <검증되지 않은 전제>
     risk: high | medium | low
 blocking_questions: []
 needs: []
@@ -90,9 +90,12 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 
 규칙:
 
+- **위 블록은 형식 예시다. `<...>` 안의 내용을 그대로 옮기지 않는다.**
+  각 목록은 비어 있어도 된다. 확인된 사실이 없으면 `facts_confirmed: []`로 두고,
+  예시 항목을 복사해 채우지 않는다. 빈 목록은 정직한 답이고, 복사한 예시는 거짓이다.
 - `source` 없는 주장은 `facts_confirmed`에 넣지 않는다. `assumptions`로 보낸다.
 - `source`로 쓸 수 있는 형태는 셋뿐이다. 서술("코드에서 확인함")은 출처가 아니다.
-  - 파일 경로: `src/greet.js:42` (줄 번호는 선택)
+  - 파일 경로: `<경로>:<줄>` 형태. 줄 번호와 범위는 선택이며 실재하는 파일이어야 한다
   - URL: `https://...`
   - 검색 범위: `glob:**/package.json` — **없음을 확인한 사실**의 출처다.
     "package.json이 없다"는 사실이며, 그 근거는 어디를 찾았는지다.
@@ -121,13 +124,18 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 
 ## Stop Conditions
 
-아래에 해당하면 즉시 중단하고 오케스트레이터로 반환한다.
+아래에 해당하면 오케스트레이터로 반환한다.
 **다음 역할을 지명하지 않는다.** 막힌 조건과 `필요한 것`만 기술하면 오케스트레이터가
 능력 선언을 보고 배정한다. 하나의 `필요한 것`을 여러 역할이 나누어 충족할 수도 있고,
 같은 `필요한 것`을 여러 역할이 병렬로 처리할 수도 있다.
 
-- 비즈니스 요구가 미정이라 영구 계약을 정할 수 없다. 후보만 남긴다.
-  필요한 것: 제품 의도 확정(`product-intent`).
+**부분 산출물을 만들었더라도 해당된다.** 일부를 만들 수 있었다는 것이 막히지 않았다는
+뜻은 아니다. 이때 봉투는 `produced`에 만든 것을 적고, `needs`에 여전히 필요한 것을
+적으며, `status: blocked`로 둔다. `needs`를 비운 채 종료하면 오케스트레이터는 더 배정할
+것이 없다고 판단한다.
+
+- 비즈니스 요구가 미정이라 영구 계약을 정할 수 없다. 후보는 `produced`에 남기되
+  `status: blocked`로 반환한다. 필요한 것: 제품 의도 확정(`product-intent`).
 - 결정에 필요한 코드 근거가 없다. 필요한 것: 코드 근거 수집(`code-evidence`).
 - 파일을 수정해야 한다. 이 역할은 `mutation_policy: none`이다.
   필요한 것: 코드 변경(`implementation`).

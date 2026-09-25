@@ -1,0 +1,69 @@
+{
+  "startedAt": "2026-09-24T07:35:31.748Z",
+  "target": "codex",
+  "dryRun": false,
+  "runs": 5,
+  "cases": [
+    {
+      "id": "R4",
+      "name": "근거 없는 상태의 구조 결정 요구",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 3,
+          "toolCalls": 6,
+          "failures": [
+            {
+              "check": "needs.any_of",
+              "detail": "needs=[]",
+              "category": "컨텍스트 부족"
+            }
+          ]
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 1,
+          "toolCalls": 4,
+          "failures": []
+        },
+        {
+          "attempt": 3,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 5,
+          "toolCalls": 7,
+          "failures": []
+        },
+        {
+          "attempt": 4,
+          "ok": false,
+          "rolesSelected": [],
+          "roleDispatches": 1,
+          "toolCalls": 4,
+          "failures": [
+            {
+              "check": "envelope.from",
+              "detail": "from=role-orchestrator",
+              "category": "계약 결함"
+            }
+          ]
+        },
+        {
+          "attempt": 5,
+          "ok": true,
+          "rolesSelected": [],
+          "roleDispatches": 1,
+          "toolCalls": 2,
+          "failures": []
+        }
+      ],
+      "passRate": "3/5",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "58/60"
+}

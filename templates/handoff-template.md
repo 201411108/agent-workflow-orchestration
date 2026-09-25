@@ -15,7 +15,7 @@ status: complete | blocked
 produced: []
 facts_confirmed:
   - claim: <확인된 사실>
-    source: <path/to/file.ts:42 또는 URL>
+    source: <파일 경로>:<줄 번호>
 assumptions:
   - claim: <검증되지 않은 전제>
     risk: high | medium | low
@@ -26,6 +26,8 @@ out_of_scope: []
 
 규칙:
 
+- 위 블록은 형식 예시다. `<...>` 안의 내용을 그대로 옮기지 않는다.
+  각 목록은 비어 있어도 된다. 빈 목록은 정직한 답이고, 복사한 예시는 거짓이다.
 - `source` 없는 주장은 `facts_confirmed`가 아니라 `assumptions`로 간다.
 - `source`는 파일 경로(`src/x.js:42`), URL, 또는 검색 범위(`glob:**/package.json`)다.
   검색 범위는 "없음을 확인한 사실"의 출처로 쓴다.
