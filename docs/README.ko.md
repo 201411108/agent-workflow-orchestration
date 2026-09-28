@@ -17,7 +17,7 @@ Agent Workflow Orchestration은 Cursor, Codex, Claude에서 일관된 역할 기
 - SHA-256 소유권 해시와 sidecar 보존을 적용한 안전한 역할 파일 갱신
 - 파일을 자동 변경하지 않는 대화형 일일 업데이트 안내
 
-신규 기능의 기본 역할 체인은 `Planner → Developer → Reviewer`입니다. 근거 조사가 필요하면 Researcher, UI 변경이면 Designer, API·상태·호환성·구조 결정이면 Architect를 조건부로 삽입합니다.
+역할 배정은 고정된 순서가 아닙니다. 오케스트레이터가 manifest에 선언된 각 역할의 `capabilities`·`produces`·`consumes`를 읽어 입력이 이미 충족된 역할을 고르고, 매 스텝 배정을 다시 계산합니다. 새 역할을 선언하면 라우팅 표를 고치지 않아도 배정 대상이 됩니다.
 
 ## ADS Workflow
 

@@ -1,8 +1,9 @@
 ---
 name: role-orchestrator
 description: >-
-  ADS(articulate/designs/specs) 문서 루프를 기준으로 사용자 요청을 분류하고
-  planner/developer/reviewer 기본 체인과 조건부 역할의 실행 순서를 고정한다.
+  신규 기능, 복합 변경, UI 변경 요청을 ADS(articulate/designs/specs) 문서 루프 위에서
+  분류하고, 각 역할이 선언한 capabilities·produces·consumes를 읽어 매 스텝 배정을
+  다시 계산한다. 고정된 역할 순서를 쓰지 않고, 반환된 needs를 능력 선언으로 해소한다.
 inputs:
   required:
     - user_request
