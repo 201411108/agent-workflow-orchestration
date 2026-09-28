@@ -1,0 +1,32 @@
+{
+  "startedAt": "2026-09-28T05:56:16.759Z",
+  "target": "claude",
+  "dryRun": false,
+  "runs": 3,
+  "cases": [
+    {
+      "id": "R7",
+      "name": "외부 근거가 필요한 기획",
+      "runs": [
+        {
+          "attempt": 1,
+          "invalid": true,
+          "reason": "실행 오류 (is_error)"
+        },
+        {
+          "attempt": 2,
+          "invalid": true,
+          "reason": "실행 오류 (is_error)"
+        },
+        {
+          "attempt": 3,
+          "invalid": true,
+          "reason": "실행 오류 (is_error)"
+        }
+      ],
+      "passRate": "0/0",
+      "invalidRuns": 3
+    }
+  ],
+  "checkPassRate": "0/0"
+}

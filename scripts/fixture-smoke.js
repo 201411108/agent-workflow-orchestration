@@ -325,8 +325,13 @@ try {
       "utf8"
     )
   );
-  if (initialItem.schemaVersion !== 2 || initialItem.nextRole !== "role-developer") {
-    throw new Error("new work items must use schema v2 and default to role-developer");
+  // 1.7 후속: CLI는 역할을 추론하지 않는다 (D2). 플래그를 주지 않으면 비어 있어야 하고,
+  // 배정은 오케스트레이터가 선언에서 계산한다.
+  if (initialItem.schemaVersion !== 2) {
+    throw new Error("new work items must use schema v2");
+  }
+  if (initialItem.activeRole !== null || initialItem.nextRole !== null) {
+    throw new Error("work must not infer a role when --role/--next-role are omitted");
   }
   const handoff = fs.readFileSync(
     path.join(continuityFixture, ".agent-workflow", ".local", "work-items", "continuity-mvp", "handoff.md"),
@@ -365,6 +370,17 @@ try {
   workflow.continuity.storage = "project";
   fs.writeFileSync(workflowPath, `${JSON.stringify(workflow, null, 2)}\n`);
   run(["advance", "--name", "continuity-mvp", "--phase", "review"], continuityFixture);
+  // phase만 바뀐 advance는 역할을 추론하지 않고 직전 값을 유지한다.
+  // 이전 버전은 phase->역할 고정 표에서 role-reviewer를 채워 넣었다.
+  const preservedItem = JSON.parse(
+    fs.readFileSync(
+      path.join(continuityFixture, ".agent-workflow", ".local", "work-items", "continuity-mvp", "work.json"),
+      "utf8"
+    )
+  );
+  if (preservedItem.phase !== "review" || preservedItem.activeRole !== "role-developer") {
+    throw new Error("advance must record the phase without inferring a role");
+  }
   run(["work", "--name", "continuity-mvp", "--feature", "continuity", "--force"], continuityFixture);
   assertExists(
     path.join(continuityFixture, ".agent-workflow", ".local", "work-items", "continuity-mvp", "work.json")

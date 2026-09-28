@@ -17,7 +17,7 @@ Agent Workflow Orchestration installs a consistent role-based AI workflow for Cu
 - Safe role-file updates with ownership hashes and sidecar preservation
 - Once-daily interactive update notifications that never modify files automatically
 
-The default feature chain is `Planner → Developer → Reviewer`. Researcher is inserted when evidence gathering is needed, Designer for UI changes, and Architect for API, state, compatibility, or structural decisions.
+Role assignment is not a fixed sequence. The orchestrator reads each role's declared `capabilities`, `produces`, and `consumes` from the manifest, picks the roles whose inputs are already satisfied, and recomputes the selection after every step. Declaring a new role makes it dispatchable without editing any routing table.
 
 ## ADS Workflow
 

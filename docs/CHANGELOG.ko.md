@@ -25,6 +25,10 @@
 
 ### Changed
 
+- `work`와 `advance`가 역할을 추론하지 않는다. CLI는 phase→역할 고정 표를 썼고
+  그 표에 `role-analyst`, `role-qa`, `role-releaser`가 없어서 이 역할들은 기록될 수
+  없었다. `--role`, `--next-role`로 명시하면 설정되고, 생략하면 건드리지 않는다.
+  배정은 역할 선언에서 계산하는 오케스트레이터의 책임이다(D2)
 - Claude 타깃이 역할을 `.claude/agents/`의 서브에이전트로, 오케스트레이터를
   스킬로 설치한다. 이전 레이아웃은 `.claude/skills/`에 `CLAUDE.md`를 썼고
   Claude Code가 그것을 로드하지 않았다
@@ -36,6 +40,15 @@
 
 ### Fixed
 
+- 1.7에서 제거했다고 기록한 고정 역할 체인 세 곳이 남아 있었다. 체인 검사가 구문
+  하나(`role-a -> role-b`)와 대상 하나(`skills/*/SKILL.md`)만 봤기 때문이다. 남은 것은
+  오케스트레이터 frontmatter `description`의 산문 체인(하네스가 스킬 로드를 판단할 때
+  읽는 텍스트), 배포되는 `README.md`의 고정 체인 문장, 그리고 CLI의 phase→역할 표였다.
+  이제 `validate`가 맨이름과 전각 화살표까지 보고, 역할 계약·배포 문서·CLI 소스·Codex
+  페이로드 로스터를 함께 검사한다
+- 역할 계약 둘이 체인을 산문으로 기술하고 있었다. 화살표도 역할 이름 두 개도 없어
+  새 검사 넷을 모두 통과했다. 패키지를 실제 프로젝트에 설치해 배포물을 훑어서 드러났다.
+  이제 역할 계약은 "체인"이라는 단어 자체를 쓸 수 없다
 - Claude 타깃이 스킬로 탐색되지 않는 파일을 생성하던 문제
 - `role-reviewer`가 `mutationPolicy: none`인데 `test_runner`를 통해 `Bash`를
   받아 읽기 전용이 아니던 문제

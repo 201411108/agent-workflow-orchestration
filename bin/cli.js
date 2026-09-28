@@ -82,16 +82,6 @@ const WORK_PHASES = [
   "done",
 ];
 const WORK_STATUSES = ["active", "blocked", "complete"];
-const PHASE_ROLES = {
-  articulate: ["role-planner", "role-developer"],
-  design: ["role-designer", "role-developer"],
-  architecture: ["role-architect", "role-developer"],
-  specification: ["role-developer", "role-reviewer"],
-  implementation: ["role-developer", "role-reviewer"],
-  review: ["role-reviewer", null],
-  verification: ["role-reviewer", null],
-  done: [null, null],
-};
 const UPDATE_CHECK_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_CHECK_FAILURE_TTL_MS = 60 * 60 * 1000;
 const UPDATE_CHECK_TIMEOUT_MS = 800;
@@ -1638,8 +1628,10 @@ function work() {
     feature: safeFeature,
     phase: "articulate",
     status: "active",
-    activeRole: "role-planner",
-    nextRole: normalizeNextRole(selectedNextRole, "role-developer"),
+    // D2: CLI는 역할을 정하지 않는다. 배정은 오케스트레이터가 선언에서 계산한다.
+    // 사용자가 --role / --next-role로 명시할 때만 기록한다.
+    activeRole: selectedRole || null,
+    nextRole: normalizeNextRole(selectedNextRole, null),
     pendingTasks: [],
     blockers: [],
     documents,
@@ -1688,11 +1680,17 @@ function advance() {
   normalizeNextRole(selectedNextRole, null);
 
   const { itemPath, item } = loadWorkItem(safeName);
-  const defaultRoles = PHASE_ROLES[phase];
   item.phase = phase;
   item.status = selectedStatus || (phase === "done" ? "complete" : "active");
-  item.activeRole = selectedRole || defaultRoles[0];
-  item.nextRole = normalizeNextRole(selectedNextRole, defaultRoles[1]);
+  // phase에서 역할을 추론하지 않는다 (D2). 명시하지 않으면 기존 값을 유지한다.
+  // 이전 버전은 phase->역할 고정 표를 썼고 그 표에 role-analyst/role-qa/role-releaser가
+  // 없어서 배정될 수 없었다. 표를 넓히는 대신 추론 자체를 없앴다.
+  if (selectedRole) {
+    item.activeRole = selectedRole;
+  }
+  if (selectedNextRole !== null && selectedNextRole !== undefined) {
+    item.nextRole = normalizeNextRole(selectedNextRole, null);
+  }
   item.updatedAt = new Date().toISOString();
   writeJson(itemPath, item);
 
@@ -1920,6 +1918,161 @@ function validateSkill(skillName, manifestEntry) {
   }
 
   return failures;
+}
+
+// D2/1.7 재발 방지.
+//
+// 1.7은 "저장소와 전 타깃 배포물 어디에도 고정 역할 체인이 없다"고 선언했으나
+// 세 곳이 남아 있었다. 오케스트레이터 frontmatter의 산문 체인, README의
+// `Planner → Developer → Reviewer`, 그리고 bin/cli.js의 phase→역할 고정 표다.
+//
+// 놓친 원인은 결함이 교묘했기 때문이 아니라 검사가 좁았기 때문이다.
+// 구문은 `role-a -> role-b` 하나만 봤고(맨이름과 전각 화살표를 못 봄),
+// 대상은 skills/*/SKILL.md 하나만 봤다(배포 문서와 CLI 코드를 안 봄).
+// 그래서 구문과 대상을 함께 넓힌다.
+function validateNoFixedChains(manifest) {
+  const failures = [];
+  const fullNames = manifest.roles.map((entry) => entry.name);
+  const stems = fullNames.map((name) => name.replace(/^role-/, ""));
+  // 전체 이름을 먼저 두어 role-planner가 planner보다 먼저 매칭되게 한다.
+  const tokenSource = `(?:${fullNames.join("|")}|${stems.join("|")})`;
+
+  function toRoleName(token) {
+    const lower = token.toLowerCase();
+    return lower.indexOf("role-") === 0 ? lower : `role-${lower}`;
+  }
+
+  // (1) frontmatter description의 산문 체인.
+  // description은 하네스가 스킬을 로드할지 판단할 때 읽는 텍스트다. 여기에
+  // 다른 역할 이름이 있으면 본문의 의존성 해소보다 먼저 읽히는 라우팅 지시가 된다.
+  // 맨이름(planner/developer/reviewer)도 잡는다. 1.7이 놓친 형태가 그것이다.
+  const descriptionTokens = new RegExp(tokenSource, "gi");
+  for (const role of manifest.roles) {
+    const skillFile = path.join(SOURCE_DIR, role.name, "SKILL.md");
+    if (!fs.existsSync(skillFile)) {
+      continue;
+    }
+    const frontmatter = readText(skillFile).match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatter) {
+      continue;
+    }
+    const description = frontmatter[1].match(/(?:^|\n)description:[\s\S]*?(?=\n[a-z_]+:|$)/);
+    if (!description) {
+      continue;
+    }
+    const named = new Set();
+    for (const token of description[0].match(descriptionTokens) || []) {
+      const resolved = toRoleName(token);
+      if (resolved !== role.name) {
+        named.add(resolved);
+      }
+    }
+    for (const other of named) {
+      failures.push(
+        `skills/${role.name}/SKILL.md frontmatter description names another role (${other}); the load trigger must not describe a role order (D2)`
+      );
+    }
+  }
+
+  // (2) 배포되는 문서의 화살표 체인.
+  // `Planner → Developer → Reviewer`는 전각 화살표와 대문자 맨이름이라 기존 검사를
+  // 둘 다 비켜갔다. docs/development/은 제외한다 — 제거한 문장을 기록으로 인용한다.
+  const arrowChain = new RegExp(
+    `${tokenSource}\\s*\`?\\s*(?:->|=>|→|➜)\\s*\`?\\s*${tokenSource}`,
+    "i"
+  );
+  const shippedDocs = [
+    path.join(ROOT_DIR, "README.md"),
+    path.join(ROOT_DIR, "docs", "README.ko.md"),
+    ...listMarkdownFiles(TEMPLATES_DIR),
+    ...listMarkdownFiles(path.join(ROOT_DIR, "payloads")),
+    ...fullNames.map((name) => path.join(SOURCE_DIR, name, "SKILL.md")),
+  ];
+  for (const docPath of shippedDocs) {
+    if (!fs.existsSync(docPath)) {
+      continue;
+    }
+    const match = readText(docPath).match(arrowChain);
+    if (match) {
+      failures.push(
+        `${path.relative(ROOT_DIR, docPath)} states a fixed role chain (${match[0].trim()}); dispatch is computed from declarations (D2)`
+      );
+    }
+  }
+
+  // (3) CLI 코드의 하드코딩된 역할 이름.
+  // 불변식은 "CLI는 역할을 정하지 않는다"다. 역할 목록은 manifest에서만 온다.
+  // 1.0.x 소유권 증명용 레거시 해시 표만 예외이며, 예외를 이름으로 드러내
+  // 새로 추가되는 표는 통과하지 못하게 한다.
+  const cliPath = path.join(ROOT_DIR, "bin", "cli.js");
+  const cliSource = readText(cliPath).replace(
+    /const KNOWN_CODEX_V1_LEGACY_HASHES = \{[\s\S]*?\n\};\n/,
+    ""
+  );
+  const hardcoded = new Set(
+    (cliSource.match(/["'](role-[a-z]+)["']/g) || []).map((literal) => literal.slice(1, -1))
+  );
+  for (const name of hardcoded) {
+    failures.push(
+      `bin/cli.js hardcodes a role name (${name}); read roles from the manifest instead (D2)`
+    );
+  }
+
+  // (5) 역할 계약 본문의 "체인" 어휘.
+  // (2)의 화살표 검사로는 잡히지 않는 형태가 실제로 둘 남아 있었다. 배포물을 직접
+  // 렌더해 훑어서야 드러났다 — 소스 검사 통과를 "없음"으로 읽으면 안 된다는
+  // D12 원칙 4의 실례다.
+  //   role-orchestrator: "역할 체인 계약을 고정하는 orchestration 레이어다"
+  //   role-analyst:      "이 역할은 체인의 앞과 뒤에 모두 등장한다"
+  // 역할 계약은 체인을 언급할 필요가 없다. 배정은 매 스텝 계산되며 순서를 기술하는
+  // 것은 계약의 일이 아니다. 부정형("고정 체인을 따르지 않는다")이 필요한 곳은
+  // Codex 페이로드이고 그곳은 이 검사의 대상이 아니다.
+  for (const name of fullNames) {
+    const skillFile = path.join(SOURCE_DIR, name, "SKILL.md");
+    if (!fs.existsSync(skillFile)) {
+      continue;
+    }
+    const chainWord = readText(skillFile).match(/.*(?:체인|\bchains?\b).*/i);
+    if (chainWord) {
+      failures.push(
+        `skills/${name}/SKILL.md describes a role chain ("${chainWord[0].trim()}"); a contract states capabilities, not an order (D2)`
+      );
+    }
+  }
+
+  // (4) Codex 페이로드 로스터가 manifest보다 뒤처지는 것.
+  // manifest -> 페이로드 방향은 이미 검사한다. 반대 방향이 없어서, 역할을 지우거나
+  // 이름을 바꾸면 페이로드에 유령 역할이 남는다. 1.8에서 역할을 3개 늘렸을 때
+  // 고정 표가 따라오지 않은 것과 같은 유형이다.
+  const guidancePath = path.join(CODEX_PAYLOAD_DIR, "AGENTS.block.md");
+  if (fs.existsSync(guidancePath)) {
+    const mentioned = new Set(readText(guidancePath).match(/role-[a-z]+/g) || []);
+    for (const name of mentioned) {
+      if (!fullNames.includes(name)) {
+        failures.push(
+          `payloads/codex/AGENTS.block.md mentions ${name}, which is not a manifest role`
+        );
+      }
+    }
+  }
+
+  return failures;
+}
+
+function listMarkdownFiles(dir) {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  const found = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...listMarkdownFiles(entryPath));
+    } else if (entry.name.endsWith(".md")) {
+      found.push(entryPath);
+    }
+  }
+  return found;
 }
 
 function validateAdapter(adapter, manifest) {
@@ -2178,6 +2331,8 @@ function validate() {
   const uncovered = CAPABILITY_VOCABULARY.filter(function (capability) {
     return !providedCapabilities.has(capability);
   });
+
+  failures.push(...validateNoFixedChains(manifest));
 
   for (const adapter of loadAllAdapters()) {
     failures.push(...validateAdapter(adapter, manifest));
@@ -2595,8 +2750,8 @@ function help() {
     --feature  Feature slug for the work command
     --from     Legacy specs source target for the import command
     --phase    Work phase for the advance command
-    --role     Active role override for the advance command
-    --next-role  Next role override for work/advance (role name or none)
+    --role     Active role for work/advance (not inferred when omitted)
+    --next-role  Next role for work/advance (role name or none)
     --status   active | blocked | complete for the advance command
     --dry-run  Preview legacy import without writing
     --global   Use the target's global home-directory scope

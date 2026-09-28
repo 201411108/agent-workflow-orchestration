@@ -1,8 +1,9 @@
 ---
 name: role-orchestrator
 description: >-
-  ADS(articulate/designs/specs) 문서 루프를 기준으로 사용자 요청을 분류하고
-  planner/developer/reviewer 기본 체인과 조건부 역할의 실행 순서를 고정한다.
+  신규 기능, 복합 변경, UI 변경 요청을 ADS(articulate/designs/specs) 문서 루프 위에서
+  분류하고, 각 역할이 선언한 capabilities·produces·consumes를 읽어 매 스텝 배정을
+  다시 계산한다. 고정된 역할 순서를 쓰지 않고, 반환된 needs를 능력 선언으로 해소한다.
 inputs:
   required:
     - user_request
@@ -29,7 +30,8 @@ fallbacks:
 
 # Role: Orchestrator
 
-이 스킬은 실행 엔진이 아니라 ADS 문서 기반 역할 체인 계약을 고정하는 orchestration 레이어다.
+이 스킬은 실행 엔진이 아니라 ADS 문서 기반 역할 계약과 배정 절차를 고정하는 orchestration 레이어다.
+고정하는 것은 배정 절차이며 역할의 순서가 아니다. 순서는 매 스텝 선언에서 계산한다.
 기능 단위 SoT는 `.agent-workflow/specs/features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
 작업을 재개할 때는 configured continuity storage의 `work-items/{work-id}/work.json`, `handoff.md`, `verification.md`를 먼저 읽는다.
 
