@@ -253,6 +253,95 @@ check("정상 실행은 runError가 없다", !okObserved.runError, "runError=" +
 check("result 이벤트를 봤다고 기록한다", okObserved.sawResult === true);
 fs.rmSync(errRoot, { recursive: true, force: true });
 
+
+// 20. F2: 범위 이탈을 실제로 계산한다.
+//     changedFiles를 관찰해 놓고 쓰지 않아 이 검사가 공허했다.
+const scopeViolations = judge.findOutOfScopeViolations(
+  ["src/grader/client.ts", "problems/003/rubric.json"],
+  ["problems/", "ui/"]
+);
+check(
+  "선언된 범위 밖 파일을 잡는다",
+  scopeViolations.length === 1 && scopeViolations[0].indexOf("problems/003/rubric.json") === 0,
+  JSON.stringify(scopeViolations)
+);
+check(
+  "범위 안 파일은 잡지 않는다",
+  judge.findOutOfScopeViolations(["src/a.ts"], ["problems/"]).length === 0
+);
+check(
+  "서술형 out_of_scope 문구는 경로로 취급하지 않는다",
+  judge.findOutOfScopeViolations(["src/a.ts"], ["이번 실행에서 건드리지 않은 영역"]).length === 0
+);
+expectCheck(
+  "범위 이탈이 있으면 실패로 판정",
+  judge.judgeRun(
+    { rolesSelected: [], outOfScopeViolations: scopeViolations, scopeObservable: true, steps: 1 },
+    {}
+  ),
+  "scope.out_of_scope_respected",
+  false
+);
+
+// 21. F1: 관찰 신호가 없으면 통과가 아니라 미판정이다.
+const unobserved = judge.judgeRun(
+  { rolesSelected: [], toolsObservable: false, scopeObservable: false, rolesLoadedObservable: false, steps: 1 },
+  {}
+);
+for (const name of ["tools.not_observable", "scope.not_observable", "setup.not_observable"]) {
+  const entry = findingOf(unobserved, name);
+  check("미판정 항목이 있다: " + name, Boolean(entry), name);
+  check("미판정은 observable: false로 표시된다: " + name, entry && entry.observable === false);
+}
+check(
+  "미판정이어도 limits는 판정한다",
+  Boolean(findingOf(unobserved, "limits.max_steps")),
+  "limits가 빠지면 조기 return 버그다"
+);
+
+// 22. F3: 로스터가 있으면 로드 여부를 실제로 판정한다.
+const initStream = [
+  JSON.stringify({
+    type: "system",
+    subtype: "init",
+    agents: ["role-planner", "role-developer"],
+    skills: ["role-orchestrator"],
+  }),
+  JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "ok" }),
+].join("\n");
+const initRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-init-"));
+const initObserved = observe(initStream, initRoot);
+check(
+  "init 이벤트의 에이전트 목록을 수집한다",
+  initObserved.loadedAgents.indexOf("role-planner") !== -1,
+  JSON.stringify(initObserved.loadedAgents)
+);
+check(
+  "init 이벤트의 스킬 목록을 수집한다",
+  initObserved.loadedSkills.indexOf("role-orchestrator") !== -1,
+  JSON.stringify(initObserved.loadedSkills)
+);
+check(
+  "init 목록을 위임으로 오인하지 않는다",
+  initObserved.rolesSelected.length === 0,
+  "rolesSelected=" + JSON.stringify(initObserved.rolesSelected)
+);
+expectCheck(
+  "로드되지 않은 역할이 있으면 실패로 판정",
+  judge.judgeRun(
+    {
+      rolesSelected: [],
+      rolesLoadedObservable: true,
+      setupErrors: ["agent role file not loaded: role-qa"],
+      steps: 1,
+    },
+    {}
+  ),
+  "setup.roles_loaded",
+  false
+);
+fs.rmSync(initRoot, { recursive: true, force: true });
+
 if (failures > 0) {
   console.error("\nJudge test failed: " + failures + " issue(s).\n");
   process.exit(1);

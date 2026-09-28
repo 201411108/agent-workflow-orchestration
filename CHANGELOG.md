@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `doctor` inspects the contents of installed role files, not only their
+  presence: Codex TOML is parsed, Claude and cursor frontmatter must declare the
+  expected role name, and enum-valued keys are checked. A consumer whose install
+  is invalid now has a diagnostic
+- Roles may declare `skills`. An empty list is a prohibition, not a deferral: the
+  `Skill` tool is withheld, which is the one boundary the runtime enforces.
+  Declaring skills grants the tool, preloads them through the target's native
+  key, and renders a `## Skills` section stating plainly that the narrower
+  boundary is contract text only
 - Three new roles: `role-analyst` (external evidence and metrics), `role-qa`
   (turns acceptance criteria into executable tests), and `role-releaser`
   (deploy and rollback). Ten roles total
@@ -78,6 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The eval harness reported three checks as passing that could never fail:
+  their inputs were hardcoded empty arrays. `tools.declared_only` had no
+  observation path at all, `scope.out_of_scope_respected` had the data but never
+  used it, and `setup.roles_loaded` was blind on Claude because the runner
+  discarded the events carrying the role roster. Out-of-scope violations and
+  role loading are now computed from real observations; unobservable checks are
+  reported separately and excluded from the pass count
+- Content invariants (contract sections, envelope fields, absence of fixed
+  chains) were checked only against sources, while the claim they supported was
+  about deployed files. They now run against each target's render
+- TOML validity was asserted by string inspection, which is how the 1.5 Codex
+  defect passed. Renders are now parsed
 - `install` reported that role files went to the skills directory even on targets
   where roles and the orchestrator go to different directories (Claude writes
   roles to `.claude/agents/` and the orchestrator to `.claude/skills/`). It now

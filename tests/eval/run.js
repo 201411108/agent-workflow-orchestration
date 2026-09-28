@@ -21,6 +21,20 @@ const CASES_DIR = path.join(__dirname, "cases");
 const HISTORY_DIR = path.join(ROOT, "docs", "development", "eval-history");
 const CLI = path.join(ROOT, "bin", "cli.js");
 
+
+// manifest의 역할 이름 목록. 로드 판정의 기대값이다.
+let cachedRoleNames = null;
+function loadManifestRoleNames() {
+  if (cachedRoleNames) {
+    return cachedRoleNames;
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "agent-workflow.manifest.json"), "utf8"));
+  cachedRoleNames = (manifest.roles || manifest.skills || []).map(function (entry) {
+    return entry.name;
+  });
+  return cachedRoleNames;
+}
+
 function arg(name, fallback) {
   const index = process.argv.indexOf("--" + name);
   if (index === -1) {
@@ -155,6 +169,8 @@ function makeProject(spec, targetName) {
 function observe(streamText, projectDir) {
   const rolesSelected = [];
   const toolsUsed = [];
+  const loadedAgents = [];
+  const loadedSkills = [];
   const transcript = [];
   let toolCalls = 0;
   let roleDispatches = 0;
@@ -172,7 +188,24 @@ function observe(streamText, projectDir) {
     }
     // system/init 이벤트는 사용 가능한 에이전트 "목록"을 싣는다.
     // 목록을 호출로 오인하면 모든 케이스가 과잉 위임으로 잘못 판정된다.
+    //
+    // 다만 목록 자체는 버리지 않는다 (F3). 역할 정의가 로드됐는지를 말해주는
+    // 유일한 신호이고, 이전에는 system 이벤트를 통째로 건너뛰어 그 신호를 잃었다.
+    // 그 결과 setup.roles_loaded가 Claude에서 항상 통과했다.
     if (event.type === "system") {
+      if (event.subtype === "init") {
+        for (const name of event.agents || []) {
+          if (typeof name === "string" && loadedAgents.indexOf(name) === -1) {
+            loadedAgents.push(name);
+          }
+        }
+        for (const entry of event.skills || []) {
+          const name = typeof entry === "string" ? entry : entry && entry.name;
+          if (typeof name === "string" && loadedSkills.indexOf(name) === -1) {
+            loadedSkills.push(name);
+          }
+        }
+      }
       continue;
     }
     const content = (event.message && event.message.content) || [];
@@ -259,6 +292,8 @@ function observe(streamText, projectDir) {
     runError,
     sawResult,
     changedFiles: changed,
+    loadedAgents,
+    loadedSkills,
   };
 }
 
@@ -463,6 +498,39 @@ function runCase(spec, dryRun, targetName) {
   const findings = [];
   const mode = spec.mode || "routing";
 
+  // F3: 역할 로드는 init 이벤트의 목록으로 판정한다. 이전에는 system 이벤트를
+  // 통째로 버려 신호가 없었고, 그래서 Claude에서 이 검사가 항상 통과했다.
+  // 목록을 싣지 않는 타깃에서는 판정하지 않는다 — 없는 신호로 판정하면 거짓이 된다.
+  const setupErrors = (observed.setupErrors || []).slice();
+  const rosterAvailable =
+    (observed.loadedAgents || []).length > 0 || (observed.loadedSkills || []).length > 0;
+  if (rosterAvailable) {
+    const loaded = (observed.loadedAgents || []).concat(observed.loadedSkills || []);
+    for (const roleName of loadManifestRoleNames()) {
+      if (loaded.indexOf(roleName) === -1) {
+        setupErrors.push("agent role file not loaded: " + roleName);
+      }
+    }
+  }
+
+  // F2: 범위 이탈은 변경 파일과 봉투의 out_of_scope를 대조해야 판정할 수 있다.
+  const scopeObservable = Boolean(envelope && Array.isArray(envelope.out_of_scope));
+  const outOfScopeViolations = scopeObservable
+    ? judge.findOutOfScopeViolations(observed.changedFiles || [], envelope.out_of_scope)
+    : [];
+
+  // F1: 부모 스트림에 서브에이전트 내부 도구 호출이 없다. 관찰 경로가 없으므로
+  // 통과로 찍지 않고 미판정으로 분리한다.
+  const runObservation = {
+    undeclaredTools: [],
+    toolsObservable: false,
+    outOfScopeViolations,
+    scopeObservable,
+    steps: observed.steps,
+    setupErrors,
+    rolesLoadedObservable: rosterAvailable,
+  };
+
   if (mode === "role") {
     // 역할 하나를 직접 실행해 봉투를 판정한다.
     findings.push.apply(
@@ -471,6 +539,15 @@ function runCase(spec, dryRun, targetName) {
         projectRoot: projectDir,
         expectedFrom: spec.expect.envelope_from || null,
       })
+    );
+    // 봉투가 있으면 범위 이탈과 로드 상태도 판정할 수 있다.
+    findings.push.apply(
+      findings,
+      judge
+        .judgeRun(Object.assign({ rolesSelected: [] }, runObservation), {})
+        .filter(function (entry) {
+          return entry.check.indexOf("routing.") !== 0 && entry.check.indexOf("limits.") !== 0;
+        })
     );
   } else if (target.observesRoleNames === false) {
     // 역할 이름을 관찰할 수 없는 타깃에서는 라우팅을 판정하지 않는다.
@@ -482,16 +559,9 @@ function runCase(spec, dryRun, targetName) {
     });
     findings.push.apply(
       findings,
-      judge.judgeRun(
-        {
-          rolesSelected: [],
-          undeclaredTools: [],
-          outOfScopeViolations: [],
-          steps: observed.steps,
-          setupErrors: observed.setupErrors || [],
-        },
-        { max_steps: spec.expect.max_steps }
-      ).filter(function (entry) {
+      judge.judgeRun(Object.assign({ rolesSelected: [] }, runObservation), {
+        max_steps: spec.expect.max_steps,
+      }).filter(function (entry) {
         return entry.check.indexOf("routing.") !== 0;
       })
     );
@@ -502,13 +572,7 @@ function runCase(spec, dryRun, targetName) {
     findings.push.apply(
       findings,
       judge.judgeRun(
-        {
-          rolesSelected: observed.rolesSelected,
-          undeclaredTools: [],
-          outOfScopeViolations: [],
-          steps: observed.steps,
-          setupErrors: observed.setupErrors || [],
-        },
+        Object.assign({ rolesSelected: observed.rolesSelected }, runObservation),
         spec.expect
       )
     );
@@ -552,6 +616,7 @@ function main() {
   const report = { startedAt: new Date().toISOString(), target: targetName, dryRun, runs, cases: [] };
   let totalChecks = 0;
   let passedChecks = 0;
+  let notJudged = 0;
 
   for (const file of files) {
     const spec = parseCase(fs.readFileSync(path.join(CASES_DIR, file), "utf8"));
@@ -571,8 +636,14 @@ function main() {
       const failed = outcome.findings.filter(function (entry) { return !entry.ok; });
       const ok = failed.length === 0;
       if (ok) casePassed += 1;
-      totalChecks += outcome.findings.length;
-      passedChecks += outcome.findings.length - failed.length;
+      // 미판정(observable: false)은 통과 수에서 분리한다.
+      // 이것을 통과로 세면 "51/51 통과"가 실제 판정력을 과대표시한다 (F1~F3).
+      const judged = outcome.findings.filter(function (entry) {
+        return entry.observable !== false;
+      });
+      notJudged += outcome.findings.length - judged.length;
+      totalChecks += judged.length;
+      passedChecks += judged.length - failed.length;
       caseReport.runs.push({
         attempt,
         ok,
@@ -599,7 +670,10 @@ function main() {
   }
 
   report.checkPassRate = passedChecks + "/" + totalChecks;
-  console.log("  전체 검사 통과: " + passedChecks + "/" + totalChecks + "\n");
+  report.notJudged = notJudged;
+  console.log("  전체 검사 통과: " + passedChecks + "/" + totalChecks);
+  // 미판정을 반드시 같이 출력한다. 숨기면 통과율이 판정력으로 읽힌다.
+  console.log("  미판정(관찰 신호 없음): " + notJudged + "건\n");
 
   if (!dryRun) {
     fs.mkdirSync(HISTORY_DIR, { recursive: true });

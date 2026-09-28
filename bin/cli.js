@@ -432,6 +432,25 @@ function readFrontmatterField(frontmatter, field) {
 
 // 역할이 선언한 추상 도구를 타깃의 실제 도구로 해석한다.
 // 매핑이 없는 도구는 unavailable로 분리해 조건문 대신 사실로 렌더링한다.
+// 스킬 이진 게이트 (D14, 2026-09-28 실측).
+//
+// 강제 가능한 것은 이것 하나다. Skill 도구를 부여하지 않으면 어떤 스킬도 호출할 수
+// 없고, 부여하면 환경의 모든 스킬에 접근한다. skills: frontmatter는 진입점이지
+// 경계가 아니다 — 목록에 없는 스킬을 호출해도 막히지 않는다(실측).
+//
+// 따라서 빈 배열은 유보가 아니라 금지다. 선언이 비어 있으면 게이트를 닫는다.
+function resolveRoleSkills(adapter, role) {
+  const declared = Array.isArray(role.skills) ? role.skills.filter(Boolean) : [];
+  const grantName = adapter.skillGrant || null;
+  return {
+    declared,
+    // 게이트를 여는 조건: 선언이 비어 있지 않고, 타깃에 부여 수단이 있다.
+    grant: declared.length > 0 && grantName ? grantName : null,
+    // 타깃이 선언을 표현할 네이티브 키를 갖는지. 없으면 계약 문구로만 남는다.
+    nativeKey: declared.length > 0 ? adapter.skillsKey || null : null,
+  };
+}
+
 function resolveRoleTools(adapter, role) {
   const declared = [...(role.requiredTools || []), ...(role.optionalTools || [])];
   if (!adapter.tools) {
@@ -450,6 +469,11 @@ function resolveRoleTools(adapter, role) {
         granted.push(piece);
       }
     }
+  }
+  // 스킬 게이트가 열렸을 때만 Skill 도구가 허용 목록에 들어간다.
+  const skills = resolveRoleSkills(adapter, role);
+  if (skills.grant && !granted.includes(skills.grant)) {
+    granted.push(skills.grant);
   }
   return { supported: true, granted, unavailable, declared };
 }
@@ -506,6 +530,31 @@ function escapeTomlBasic(value) {
   return value.split("\\").join("\\\\").split('"').join('\\"');
 }
 
+
+// 선언된 스킬을 계약 본문에 적는다. 선언이 없으면 아무것도 렌더하지 않는다.
+//
+// D14: 범위 경계는 강제되지 않는다. Skill 도구를 부여하면 그 역할은 환경의 모든
+// 스킬에 접근할 수 있고, 좁히는 것은 이 문장뿐이다. 그 사실을 숨기지 않고 적는다 —
+// 강제된다고 믿으면 역할이 경계를 지킬 이유를 덜 느낀다.
+function renderSkillsSection(adapter, role) {
+  const resolved = resolveRoleSkills(adapter, role);
+  if (resolved.declared.length === 0) {
+    return [];
+  }
+  return [
+    "## Skills",
+    "",
+    "아래 스킬만 이 역할의 범위다.",
+    "",
+    ...resolved.declared.map((name) => `- \`${name}\``),
+    "",
+    "선언되지 않은 스킬은 호출하지 않는다. **이 경계는 런타임이 강제하지 않는다** —",
+    "도구 허용 목록은 스킬 호출 자체를 열거나 닫을 뿐 어떤 스킬인지 구분하지 않는다.",
+    "따라서 이 목록이 유일한 경계이며, 지키는 책임은 이 역할에 있다.",
+    "",
+  ];
+}
+
 function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   const parsed = parseSkill(skillName);
   const workflow = global ? getDefaultWorkflow() : loadWorkflow(projectRoot);
@@ -527,7 +576,12 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
 
   if (format === "toml") {
     const instructions = replaceSpecsRoot(
-      [...renderContractSummary(role), ...renderToolsSection(adapter, role), parsed.body].join("\n")
+      [
+        ...renderContractSummary(role),
+        ...renderToolsSection(adapter, role),
+        ...renderSkillsSection(adapter, role),
+        parsed.body,
+      ].join("\n")
     ).split('"""').join('\\"\\"\\"');
     const lines = [
       `name = "${escapeTomlBasic(role.name)}"`,
@@ -557,6 +611,12 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
   if (resolvedTools.supported && resolvedTools.granted.length > 0) {
     frontmatterLines.push(`tools: ${resolvedTools.granted.join(", ")}`);
   }
+  // 선언된 스킬을 네이티브 키로 내보낸다. 이것은 preload이며 경계가 아니다 (D14).
+  // 경계는 Skill 도구를 부여했는지 하나뿐이고 그것은 tools에 이미 반영됐다.
+  const resolvedSkills = resolveRoleSkills(adapter, role);
+  if (resolvedSkills.nativeKey && resolvedSkills.declared.length > 0) {
+    frontmatterLines.push(`${resolvedSkills.nativeKey}: ${resolvedSkills.declared.join(", ")}`);
+  }
   return replaceSpecsRoot(
     [
       "---",
@@ -569,6 +629,7 @@ function renderTargetRoleFile(adapter, skillName, projectRoot = cwd) {
       "",
       ...renderContractSummary(role),
       ...renderToolsSection(adapter, role),
+      ...renderSkillsSection(adapter, role),
       parsed.body,
     ].join("\n")
   );
@@ -2082,6 +2143,71 @@ function listMarkdownFiles(dir) {
   return found;
 }
 
+
+// 배포물의 내용 불변식.
+//
+// F5: 내용 검사가 전부 validateSkill에 있어 소스만 봤다. validateAdapter는 렌더를
+// 보지만 구조만 봤다(출력 키, frontmatter 형태, TOML 유효성, 권한 키).
+// 1.7의 완료 기준은 "전 타깃 배포물 어디에도"였는데 근거는 소스 검사 통과였고,
+// 그래서 체인 두 곳이 배포물에 남았다. 손으로 렌더해 grep해서야 나왔다.
+//
+// 규칙: 주장의 대상이 배포물이면 검사의 대상도 배포물이다.
+function renderedContentFailures(adapter, roleName, rendered, roleNameTokens) {
+  const failures = [];
+  const where = `adapter ${adapter.target} render for ${roleName}`;
+
+  // 역할이 언제 시작·종료·중단하는지가 배포물에 살아 있어야 한다.
+  for (const token of ["## Activation", "## Done Criteria", "## Stop Conditions", "## Handoff Contract"]) {
+    if (!rendered.includes(token)) {
+      failures.push(`${where} is missing content section: ${token}`);
+    }
+  }
+  for (const field of HANDOFF_ENVELOPE_FIELDS) {
+    if (!rendered.includes(field)) {
+      failures.push(`${where} is missing envelope field: ${field}`);
+    }
+  }
+  if (!rendered.includes(`from: ${roleName}`)) {
+    failures.push(`${where} envelope must declare from: ${roleName}`);
+  }
+
+  // 고정 체인은 배포물에서도 금지다. 화살표 표기와 어휘 둘 다 본다.
+  const arrow = new RegExp(
+    `${roleNameTokens}\\s*\`?\\s*(?:->|=>|→|➜)\\s*\`?\\s*${roleNameTokens}`,
+    "i"
+  );
+  const arrowMatch = rendered.match(arrow);
+  if (arrowMatch) {
+    failures.push(`${where} states a fixed role chain (${arrowMatch[0].trim()}) (D2)`);
+  }
+  const chainWord = rendered.match(/.*(?:체인|\bchains?\b).*/i);
+  if (chainWord) {
+    failures.push(`${where} describes a role chain ("${chainWord[0].trim().slice(0, 60)}") (D2)`);
+  }
+
+  // 로드 트리거(description)가 다른 역할을 지명하면 본문의 의존성 해소보다
+  // 먼저 읽히는 라우팅 지시가 된다. 형식마다 description을 꺼내는 방법이 다르다.
+  const description =
+    adapter.roleFormat === "toml" && !rendered.startsWith("---\n")
+      ? (rendered.match(/\ndescription = "((?:[^"\\]|\\.)*)"/) || [])[1]
+      : (rendered.match(/(?:^|\n)description:\s*([\s\S]*?)(?=\n[a-z_]+:|\n---)/) || [])[1];
+  if (description) {
+    const seen = new Set();
+    for (const token of description.match(new RegExp(roleNameTokens, "gi")) || []) {
+      const lower = token.toLowerCase();
+      const resolved = lower.indexOf("role-") === 0 ? lower : `role-${lower}`;
+      if (resolved !== roleName) {
+        seen.add(resolved);
+      }
+    }
+    for (const other of seen) {
+      failures.push(`${where} description names another role (${other}) (D2)`);
+    }
+  }
+
+  return failures;
+}
+
 function validateAdapter(adapter, manifest) {
   const failures = [];
 
@@ -2166,6 +2292,10 @@ function validateAdapter(adapter, manifest) {
 
   const orchestrator = manifest.roles.find((entry) => entry.name.endsWith("orchestrator"));
   const renderedPaths = new Set();
+  const adapterFullNames = manifest.roles.map((entry) => entry.name);
+  const adapterRoleNameTokens = `(?:${adapterFullNames.join("|")}|${adapterFullNames
+    .map((name) => name.replace(/^role-/, ""))
+    .join("|")})`;
 
   for (const role of manifest.roles) {
     const isOrchestratorSkill = adapter.orchestratorAs === "skill" && orchestrator && role.name === orchestrator.name;
@@ -2214,9 +2344,58 @@ function validateAdapter(adapter, manifest) {
           );
         }
       }
-      // 이스케이프되지 않은 TOML 여러 줄 구분자가 남으면 파싱이 깨진다.
-      if ((rendered.match(/(?<!\\)"""/g) || []).length !== 2) {
-        failures.push(`adapter ${adapter.target} render for ${role.name} has unbalanced TOML multiline delimiters`);
+      // F8: 문자열 검사로 TOML 유효성을 주장하지 않는다.
+      // 1.5의 Codex 결함이 이 틈으로 들어왔다 — web_search가 boolean이어서 역할
+      // TOML 9개가 전부 무효였는데 설치는 성공하고 doctor도 통과했다. 그때 넣은 것은
+      // 값 하나를 보는 검사였고, 다른 TOML 오류는 여전히 지나갔다.
+      // doctor가 소비자 쪽에서 쓰는 것과 같은 검증기를 여기서도 쓴다.
+      const parsedToml = validateEmittedToml(rendered);
+      for (const tomlError of parsedToml.errors) {
+        failures.push(`adapter ${adapter.target} render for ${role.name} emits invalid TOML: ${tomlError}`);
+      }
+      if (parsedToml.ok && !parsedToml.sawMultiline) {
+        failures.push(
+          `adapter ${adapter.target} render for ${role.name} has no multiline developer_instructions block`
+        );
+      }
+    }
+
+    failures.push(...renderedContentFailures(adapter, role.name, rendered, adapterRoleNameTokens));
+
+    // 스킬 이진 게이트 불변식 (D14). 강제 가능한 것이 이것 하나이므로 반드시 검사한다.
+    // 선언이 비어 있는데 Skill이 부여되면 그 역할은 환경 전체 스킬에 접근한다.
+    const skillGate = resolveRoleSkills(adapter, role);
+    const grantName = adapter.skillGrant;
+    if (grantName) {
+      // 정규식을 쓰지 않는다. 템플릿 리터럴 안의 \b는 단어 경계가 아니라
+      // 백스페이스 문자로 해석되어 조용히 틀린다. 실제로 그렇게 틀렸다.
+      const toolsLine = rendered.split("\n").find((line) => line.startsWith("tools:"));
+      const grantedInRender = Boolean(
+        toolsLine &&
+          toolsLine
+            .slice("tools:".length)
+            .split(",")
+            .map((piece) => piece.trim())
+            .includes(grantName)
+      );
+      if (skillGate.declared.length === 0 && grantedInRender) {
+        failures.push(
+          `adapter ${adapter.target} render for ${role.name} grants ${grantName} but declares no skills; an empty skills list is a prohibition, not a deferral (D14)`
+        );
+      }
+      if (skillGate.declared.length > 0 && !grantedInRender) {
+        failures.push(
+          `adapter ${adapter.target} render for ${role.name} declares skills but does not grant ${grantName} (D14)`
+        );
+      }
+    }
+    if (skillGate.nativeKey && skillGate.declared.length > 0) {
+      for (const skillName of skillGate.declared) {
+        if (!rendered.includes(skillName)) {
+          failures.push(
+            `adapter ${adapter.target} render for ${role.name} is missing declared skill: ${skillName}`
+          );
+        }
       }
     }
 
@@ -2460,6 +2639,183 @@ function findCodexTrustAnchor(projectRoot, trustedPaths) {
   return best;
 }
 
+
+// 배포된 역할 파일의 "내용"을 검사한다.
+//
+// F9: doctor는 통과 조건이 거의 전부 fs.existsSync였다. 역할 파일 9개가 전부
+// 무효여도 파일이 자리에 있으면 [ok]였다. 1.5에서 실제로 그렇게 통과했다 —
+// web_search가 boolean이어서 Codex가 9개를 전부 무시했는데 설치는 성공하고
+// doctor도 통과했다.
+//
+// 비대칭이 핵심이다. validate는 개발자가 이 저장소에서 돌리고, doctor는 소비자가
+// 자기 프로젝트에서 돌린다. 소비자는 validate를 돌릴 수 없으므로 doctor가
+// 내용을 보지 않으면 무효한 설치를 진단할 수단이 아예 없다.
+
+// 우리가 실제로 내보내는 TOML 모양만 검증한다. 범용 TOML 파서가 아니다.
+// 내보내는 모양은 단순 키 몇 개 + developer_instructions 여러 줄 블록 하나다.
+// 범용 파서라고 주장하지 않는 것이 중요하다 — 주장은 검사 범위와 같아야 한다.
+function validateEmittedToml(text) {
+  const errors = [];
+  const keys = {};
+  const lines = text.split("\n");
+  let index = 0;
+  let sawMultiline = false;
+
+  while (index < lines.length) {
+    const raw = lines[index];
+    const line = raw.trim();
+    index += 1;
+    if (line === "" || line.startsWith("#")) {
+      continue;
+    }
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) {
+      errors.push(`line ${index}: not a key assignment: ${line.slice(0, 40)}`);
+      continue;
+    }
+    const key = match[1];
+    const value = match[2];
+    if (Object.prototype.hasOwnProperty.call(keys, key)) {
+      errors.push(`duplicate key: ${key}`);
+    }
+
+    if (value === '"""') {
+      // 여러 줄 블록. 닫는 """를 찾을 때까지 삼킨다.
+      sawMultiline = true;
+      let closed = false;
+      const body = [];
+      while (index < lines.length) {
+        const bodyLine = lines[index];
+        index += 1;
+        if (bodyLine.trim() === '"""') {
+          closed = true;
+          break;
+        }
+        body.push(bodyLine);
+      }
+      if (!closed) {
+        errors.push(`key ${key}: multiline string is never closed`);
+      }
+      // 본문 안의 이스케이프되지 않은 """는 블록을 조기에 끊는다.
+      const inner = body.join("\n");
+      if (/(?<!\\)"""/.test(inner)) {
+        errors.push(`key ${key}: unescaped triple quote inside multiline string`);
+      }
+      keys[key] = inner;
+      continue;
+    }
+
+    const basic = value.match(/^"((?:[^"\\]|\\.)*)"$/);
+    if (basic) {
+      keys[key] = basic[1];
+      continue;
+    }
+    if (/^(true|false)$/.test(value)) {
+      keys[key] = value === "true";
+      continue;
+    }
+    if (/^-?\d+$/.test(value)) {
+      keys[key] = Number(value);
+      continue;
+    }
+    errors.push(`key ${key}: value is not a valid basic string, boolean, or integer: ${value.slice(0, 40)}`);
+  }
+
+  return { ok: errors.length === 0, errors, keys, sawMultiline };
+}
+
+// Codex 역할 파일이 실제로 쓸 수 있는 상태인지 본다.
+// required는 Codex가 요구하는 키, enums는 값이 열거값이어야 하는 키다.
+const CODEX_ROLE_REQUIRED_KEYS = ["name", "description", "developer_instructions"];
+const CODEX_ROLE_ENUMS = {
+  web_search: ["disabled", "cached", "indexed", "live"],
+  sandbox_mode: ["read-only", "workspace-write", "danger-full-access"],
+};
+
+function inspectCodexRoleFile(filePath, roleName) {
+  const problems = [];
+  const parsed = validateEmittedToml(readText(filePath));
+  problems.push(...parsed.errors);
+  if (parsed.ok) {
+    for (const key of CODEX_ROLE_REQUIRED_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(parsed.keys, key)) {
+        problems.push(`missing required key: ${key}`);
+      }
+    }
+    if (parsed.keys.name !== undefined && parsed.keys.name !== roleName) {
+      problems.push(`name is "${parsed.keys.name}" but the file is for ${roleName}`);
+    }
+    for (const [key, allowed] of Object.entries(CODEX_ROLE_ENUMS)) {
+      const value = parsed.keys[key];
+      if (value === undefined) {
+        continue;
+      }
+      if (typeof value !== "string" || allowed.indexOf(value) === -1) {
+        problems.push(`${key} must be one of ${allowed.join(", ")} but is ${JSON.stringify(value)}`);
+      }
+    }
+  }
+  return problems;
+}
+
+// Claude / cursor 역할 파일은 마크다운 frontmatter를 쓴다.
+// name이 없거나 역할과 다르면 하네스가 역할로 인식하지 못한다.
+function inspectMarkdownRoleFile(filePath, roleName) {
+  const problems = [];
+  const contents = readText(filePath);
+  const frontmatter = contents.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatter) {
+    problems.push("missing YAML frontmatter");
+    return problems;
+  }
+  const name = frontmatter[1].match(/(?:^|\n)name:\s*(\S+)/);
+  if (!name) {
+    problems.push("frontmatter has no name field");
+  } else if (name[1] !== roleName) {
+    problems.push(`name is "${name[1]}" but the file is for ${roleName}`);
+  }
+  if (!/(?:^|\n)description:\s*\S/.test(frontmatter[1])) {
+    problems.push("frontmatter has no description");
+  }
+  return problems;
+}
+
+// 설치된 역할 파일 전체의 내용을 검사해 doctor용 finding 하나로 요약한다.
+function inspectInstalledRoleFiles(adapter, managedFiles) {
+  const present = managedFiles.filter((entry) => fs.existsSync(entry.filePath));
+  const orchestratorName = getOrchestratorRoleName();
+  const problems = [];
+  for (const entry of present) {
+    // 오케스트레이터가 스킬로 배포되는 타깃에서는 그 파일만 마크다운이다 (D15).
+    // 역할 형식을 파일 전체에 일괄 적용하면 그 하나를 잘못 검사한다.
+    const isOrchestratorSkill =
+      adapter.orchestratorAs === "skill" && entry.roleName === orchestratorName;
+    const format = isOrchestratorSkill ? "markdown-frontmatter" : adapter.roleFormat;
+    let fileProblems;
+    try {
+      fileProblems =
+        format === "toml"
+          ? inspectCodexRoleFile(entry.filePath, entry.roleName)
+          : inspectMarkdownRoleFile(entry.filePath, entry.roleName);
+    } catch (error) {
+      fileProblems = [`cannot read: ${error.message}`];
+    }
+    for (const problem of fileProblems) {
+      problems.push(`${entry.roleName}: ${problem}`);
+    }
+  }
+  return {
+    label: "role file contents",
+    ok: problems.length === 0,
+    detail:
+      present.length === 0
+        ? "no role files to inspect (run install)"
+        : problems.length === 0
+          ? `${present.length} file(s) parse and declare the expected role`
+          : `${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${problems.length > 3 ? " ..." : ""}`,
+  };
+}
+
 function doctor() {
   const adapter = loadAdapter(target);
   const findings = [];
@@ -2507,6 +2863,7 @@ function doctor() {
         ? `${agentFiles.length} custom agent(s) present`
         : "one or more custom agents are missing",
     });
+    findings.push(inspectInstalledRoleFiles(adapter, codexFiles));
     let configOk = false;
     try {
       const result = mergeConfig(fs.existsSync(paths.configFile) ? readText(paths.configFile) : "");
@@ -2546,6 +2903,7 @@ function doctor() {
         detail: fs.existsSync(dirPath) ? "present" : "missing (run install)",
       });
     }
+    findings.push(inspectInstalledRoleFiles(adapter, getManagedRoleFiles(adapter)));
   }
   findings.push({
     label: workflow ? workflow.specsRoot : `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,

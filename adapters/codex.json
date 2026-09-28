@@ -63,6 +63,8 @@
     "task_subagent": null,
     "structured_question": null
   },
-  "toolBindingNote": "Codex는 역할별 도구 허용 목록을 지원하지 않는다. 쓰기 권한은 sandbox_mode로, 웹 검색은 web_search 키로만 제어한다 (HARNESS_CAPABILITIES 2절).",
+  "skillGrant": null,
+  "skillsKey": null,
+  "toolBindingNote": "Codex는 역할별 도구 허용 목록을 지원하지 않는다. 쓰기 권한은 sandbox_mode로, 웹 검색은 web_search 키로만 제어한다 (HARNESS_CAPABILITIES 2절). 스킬 바인딩도 미지원으로 둔다 — [[skills.config]] 구문은 존재하지만 그것이 범위를 제한하는지 실측하지 않았다. Claude의 skills: 키는 실측 결과 제한이 아니라 진입점이었고 (DESIGN_DECISIONS D14), 구문 존재를 근거로 네이티브라고 판정한 것이 1.1의 오류였다. 같은 오류를 반복하지 않기 위해 측정 전까지 null로 둔다.",
   "writeCapableTools": []
 }

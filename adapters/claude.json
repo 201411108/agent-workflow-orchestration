@@ -39,7 +39,9 @@
     "task_subagent": "Agent",
     "structured_question": "AskUserQuestion"
   },
-  "toolBindingNote": "서브에이전트 frontmatter의 tools 허용 목록으로 렌더링한다. browser는 네이티브 대응이 없다.",
+  "skillGrant": "Skill",
+  "skillsKey": "skills",
+  "toolBindingNote": "서브에이전트 frontmatter의 tools 허용 목록으로 렌더링한다. browser는 네이티브 대응이 없다. 스킬은 이진 게이트만 강제된다 — Skill 도구를 부여하지 않으면 어떤 스킬도 호출할 수 없고, 부여하면 환경 전체 스킬에 접근한다. skills: 키는 preload이며 경계가 아니다(2026-09-28 실측, D14). 따라서 어떤 스킬만 쓰라는 제한은 계약 문구로만 존재한다.",
   "writeCapableTools": [
     "Write",
     "Edit",

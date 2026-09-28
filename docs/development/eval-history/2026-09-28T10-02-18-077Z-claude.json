@@ -1,0 +1,28 @@
+{
+  "startedAt": "2026-09-28T10:02:18.077Z",
+  "target": "claude",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R6",
+      "name": "봉투 계약 준수",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-planner"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 11,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "13/13",
+  "notJudged": 1
+}
