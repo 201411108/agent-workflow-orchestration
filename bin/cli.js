@@ -1093,7 +1093,14 @@ function install() {
   saveInstallState(state);
 
   console.log(`\n  Done: ${installed} installed, ${skipped} skipped.`);
-  console.log(`  Role files were written to ${paths.skillsDir}\n`);
+  // 역할과 오케스트레이터가 서로 다른 디렉터리로 가는 타깃이 있다 (claude: agents/ + skills/).
+  // 한쪽만 알리면 사용자는 파일을 찾지 못하고, 없는 곳을 보며 설치가 실패했다고 판단한다.
+  if (paths.rolesDir === paths.skillsDir) {
+    console.log(`  Role files were written to ${paths.rolesDir}\n`);
+  } else {
+    console.log(`  Role files were written to ${paths.rolesDir}`);
+    console.log(`  Orchestrator skill was written to ${paths.skillsDir}\n`);
+  }
 }
 
 function update() {
@@ -2521,11 +2528,24 @@ function doctor() {
         : "managed orchestration guidance missing",
     });
   } else {
-    findings.push({
-      label: `${adapter.projectPaths.skillsDir}`,
-      ok: fs.existsSync(paths.skillsDir),
-      detail: fs.existsSync(paths.skillsDir) ? "present" : "missing (run install)",
-    });
+    // 역할 디렉터리와 스킬 디렉터리가 다른 타깃에서는 둘 다 봐야 한다.
+    // 스킬 디렉터리만 보면 역할 9개가 전부 없는데도 present로 보고한다.
+    // 1.5의 Codex 결함과 같은 유형이다 — 설치가 성공하고 doctor가 통과했으나
+    // 파일 존재만 봤다.
+    const checkedDirs =
+      paths.rolesDir === paths.skillsDir
+        ? [[adapter.projectPaths.skillsDir, paths.skillsDir]]
+        : [
+            [adapter.projectPaths.rolesDir || adapter.projectPaths.skillsDir, paths.rolesDir],
+            [adapter.projectPaths.skillsDir, paths.skillsDir],
+          ];
+    for (const [label, dirPath] of checkedDirs) {
+      findings.push({
+        label: `${label}`,
+        ok: fs.existsSync(dirPath),
+        detail: fs.existsSync(dirPath) ? "present" : "missing (run install)",
+      });
+    }
   }
   findings.push({
     label: workflow ? workflow.specsRoot : `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,
