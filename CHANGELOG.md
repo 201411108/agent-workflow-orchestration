@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `work` and `advance` no longer infer a role. The CLI used a fixed
+  phase-to-role table that did not contain `role-analyst`, `role-qa`, or
+  `role-releaser`, so those roles could never be recorded. Pass `--role` and
+  `--next-role` to set them; omitted, they are left untouched. Dispatch is the
+  orchestrator's job, computed from role declarations (D2)
 - Claude target now installs roles as subagents under `.claude/agents/` and the
   orchestrator as a skill. The previous layout wrote `CLAUDE.md` into
   `.claude/skills/`, which Claude Code never loaded
@@ -73,6 +78,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Three fixed role chains survived the 1.7 removal because the chain check
+  read one syntax (`role-a -> role-b`) in one place (`skills/*/SKILL.md`): a
+  prose chain in the orchestrator's frontmatter `description`, which is the text
+  the harness reads when deciding whether to load the skill; `Planner → Developer
+  → Reviewer` in the shipped `README.md`; and the CLI's phase-to-role table.
+  `validate` now checks bare role stems and full-width arrows across role
+  contracts, shipped documents, CLI sources, and the Codex payload roster
+- Two more role contracts described a chain in prose, with no arrow and no
+  second role name, so all four new checks passed them. Rendering the package
+  into a project and scanning the deployed files exposed them; a contract now
+  may not use the word "chain" at all
 - Claude target produced files that were never discovered as skills
 - `role-reviewer` declared `mutationPolicy: none` but received `Bash` through
   `test_runner`, so it was not read-only
