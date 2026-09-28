@@ -78,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `install` reported that role files went to the skills directory even on targets
+  where roles and the orchestrator go to different directories (Claude writes
+  roles to `.claude/agents/` and the orchestrator to `.claude/skills/`). It now
+  names both
+- `doctor` checked only the skills directory on those targets, so all nine role
+  files could be missing and it still reported present
 - Three fixed role chains survived the 1.7 removal because the chain check
   read one syntax (`role-a -> role-b`) in one place (`skills/*/SKILL.md`): a
   prose chain in the orchestrator's frontmatter `description`, which is the text
