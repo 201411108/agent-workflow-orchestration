@@ -30,7 +30,8 @@ fallbacks:
 
 # Role: Orchestrator
 
-이 스킬은 실행 엔진이 아니라 ADS 문서 기반 역할 체인 계약을 고정하는 orchestration 레이어다.
+이 스킬은 실행 엔진이 아니라 ADS 문서 기반 역할 계약과 배정 절차를 고정하는 orchestration 레이어다.
+고정하는 것은 배정 절차이며 역할의 순서가 아니다. 순서는 매 스텝 선언에서 계산한다.
 기능 단위 SoT는 `.agent-workflow/specs/features/{feature-name}/articulate.md`, `designs.md`, `specs.md` 순서로 읽고 갱신한다.
 작업을 재개할 때는 configured continuity storage의 `work-items/{work-id}/work.json`, `handoff.md`, `verification.md`를 먼저 읽는다.
 

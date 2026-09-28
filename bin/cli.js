@@ -2018,6 +2018,28 @@ function validateNoFixedChains(manifest) {
     );
   }
 
+  // (5) 역할 계약 본문의 "체인" 어휘.
+  // (2)의 화살표 검사로는 잡히지 않는 형태가 실제로 둘 남아 있었다. 배포물을 직접
+  // 렌더해 훑어서야 드러났다 — 소스 검사 통과를 "없음"으로 읽으면 안 된다는
+  // D12 원칙 4의 실례다.
+  //   role-orchestrator: "역할 체인 계약을 고정하는 orchestration 레이어다"
+  //   role-analyst:      "이 역할은 체인의 앞과 뒤에 모두 등장한다"
+  // 역할 계약은 체인을 언급할 필요가 없다. 배정은 매 스텝 계산되며 순서를 기술하는
+  // 것은 계약의 일이 아니다. 부정형("고정 체인을 따르지 않는다")이 필요한 곳은
+  // Codex 페이로드이고 그곳은 이 검사의 대상이 아니다.
+  for (const name of fullNames) {
+    const skillFile = path.join(SOURCE_DIR, name, "SKILL.md");
+    if (!fs.existsSync(skillFile)) {
+      continue;
+    }
+    const chainWord = readText(skillFile).match(/.*(?:체인|\bchains?\b).*/i);
+    if (chainWord) {
+      failures.push(
+        `skills/${name}/SKILL.md describes a role chain ("${chainWord[0].trim()}"); a contract states capabilities, not an order (D2)`
+      );
+    }
+  }
+
   // (4) Codex 페이로드 로스터가 manifest보다 뒤처지는 것.
   // manifest -> 페이로드 방향은 이미 검사한다. 반대 방향이 없어서, 역할을 지우거나
   // 이름을 바꾸면 페이로드에 유령 역할이 남는다. 1.8에서 역할을 3개 늘렸을 때
