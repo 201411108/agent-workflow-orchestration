@@ -87,6 +87,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A role could dispatch other roles and hold a conversation with them. The
+  Claude adapter granted `role-developer` the unscoped `Agent` tool, so it spawned
+  `role-reviewer` directly and got back an id for continuing that conversation —
+  defeating both "the orchestrator assigns" and "no direct agent-to-agent
+  dialogue". Scoping the grant does not help: the runtime ignores the scope. The
+  abstract `task_subagent` tool is removed, and `validate` now fails any render
+  that grants `Agent`
+- `doctor` reports whether tool binding is enforced on the target at all. On
+  cursor it is not, so a contract's `required_tools` there is text rather than a
+  boundary, and consumers were never told
 - The eval harness reported three checks as passing that could never fail:
   their inputs were hardcoded empty arrays. `tools.declared_only` had no
   observation path at all, `scope.out_of_scope_respected` had the data but never

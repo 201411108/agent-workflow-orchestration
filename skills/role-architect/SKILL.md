@@ -120,7 +120,7 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 - `decision_candidates`의 각 결정 지점에 권장안과 대안이 하나 이상 있고 근거가 붙어 있다.
 - 호환성 영향이 "영향 없음"인 경우에도 명시되어 있다.
 - `risks`의 각 항목에 완화 조건이 있다.
-- `role-developer`가 보존해야 할 계약이 `handoff_notes`에 열거되어 있다.
+- 구현 시 보존해야 할 계약이 `handoff_notes`에 열거되어 있다.
 
 ## Stop Conditions
 
