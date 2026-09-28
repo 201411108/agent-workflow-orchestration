@@ -165,8 +165,59 @@ function sourceExists(source, projectRoot) {
   return fs.existsSync(absolute);
 }
 
+
+// 변경된 파일 중 봉투가 범위 밖이라고 선언한 경로에 걸리는 것을 센다.
+//
+// F2: changedFiles를 git status로 관찰해 놓고 어디에서도 쓰지 않았다.
+// 봉투의 out_of_scope도 파싱되어 있었다. 교집합을 구하는 코드만 없었다.
+// D6은 범위 이탈을 즉시 중단 조건으로 정했는데 기계 판정이 불가능한 상태였다.
+//
+// out_of_scope 항목은 자유 문구다. 디렉터리(`problems/`)나 경로 조각이 온다.
+// 그래서 접두 일치와 부분 일치를 함께 본다. 과탐이 미탐보다 낫다 — 과탐은
+// 기록을 보고 사람이 걷어낼 수 있고, 미탐은 존재를 모른다.
+function findOutOfScopeViolations(changedFiles, outOfScope) {
+  const declared = (outOfScope || [])
+    .map(function (entry) {
+      return String(entry).trim().replace(/^\.\//, "");
+    })
+    .filter(function (entry) {
+      // 서술형 문구는 경로가 아니다. 공백이 있으면 경로로 취급하지 않는다.
+      return entry.length > 0 && entry.indexOf(" ") === -1;
+    });
+  if (declared.length === 0) {
+    return [];
+  }
+  const violations = [];
+  for (const raw of changedFiles || []) {
+    const file = String(raw).trim().replace(/^\.\//, "");
+    if (file === "") {
+      continue;
+    }
+    for (const scope of declared) {
+      const bare = scope.replace(/\/$/, "");
+      if (bare === "" ) {
+        continue;
+      }
+      if (file === bare || file.startsWith(bare + "/") || file.indexOf(bare) !== -1) {
+        violations.push(file + " (out_of_scope: " + scope + ")");
+        break;
+      }
+    }
+  }
+  return violations;
+}
+
 function finding(check, ok, detail) {
   return { check: check, ok: ok, detail: detail };
+}
+
+// 관찰 신호가 없어 판정하지 않은 항목.
+//
+// F1~F3의 원인: 관찰 불가와 위반 없음이 같은 [ok]로 찍히고 통과 수에 들어갔다.
+// "51/51 통과"가 실제로는 39개만 판정한 결과였다. 판정하지 않은 것은 통과가 아니다.
+// observable: false를 달면 실행기가 통과 수에서 분리하고 미판정으로 따로 센다.
+function notObserved(check, detail) {
+  return { check: check, ok: true, observable: false, detail: detail };
 }
 
 // 봉투 하나를 계약에 대고 판정한다.
@@ -327,39 +378,74 @@ function judgeRun(observed, expectation) {
     )
   );
 
-  const undeclared = (observed && observed.undeclaredTools) || [];
-  findings.push(
-    finding(
-      "tools.declared_only",
-      undeclared.length === 0,
-      undeclared.length === 0 ? "선언된 도구만 사용" : "미선언 도구: " + undeclared.join(", ")
-    )
-  );
+  // 도구 경계: 부모 스트림에는 서브에이전트 내부 도구 호출이 없다.
+  // 관찰 신호가 없으면 통과로 찍지 않고 미판정으로 분리한다.
+  if (observed && observed.toolsObservable === false) {
+    findings.push(
+      notObserved(
+        "tools.not_observable",
+        "부모 스트림에 서브에이전트 도구 호출이 없어 도구 경계는 판정하지 않는다"
+      )
+    );
+  } else {
+    const undeclared = (observed && observed.undeclaredTools) || [];
+    findings.push(
+      finding(
+        "tools.declared_only",
+        undeclared.length === 0,
+        undeclared.length === 0 ? "선언된 도구만 사용" : "미선언 도구: " + undeclared.join(", ")
+      )
+    );
+  }
 
-  const violations = (observed && observed.outOfScopeViolations) || [];
-  findings.push(
-    finding(
-      "scope.out_of_scope_respected",
-      violations.length === 0,
-      violations.length === 0 ? "범위 준수" : "범위 밖 수정: " + violations.join(", ")
-    )
-  );
+  // 범위 이탈: 변경 파일과 봉투의 out_of_scope를 대조해야 판정할 수 있다.
+  // 봉투가 없는 실행(라우팅 모드)에서는 대조 기준이 없으므로 미판정이다.
+  if (observed && observed.scopeObservable === false) {
+    findings.push(
+      notObserved(
+        "scope.not_observable",
+        "봉투의 out_of_scope가 없어 범위 이탈은 판정하지 않는다"
+      )
+    );
+  } else {
+    const violations = (observed && observed.outOfScopeViolations) || [];
+    findings.push(
+      finding(
+        "scope.out_of_scope_respected",
+        violations.length === 0,
+        violations.length === 0 ? "범위 준수" : "범위 밖 수정: " + violations.join(", ")
+      )
+    );
+  }
 
   // 역할 정의가 로드되지 않으면 계약을 판정할 대상 자체가 없다.
   // 하네스가 이것을 "위반 없음"으로 넘기면 깨진 배포를 정상으로 본다.
   const setupErrors = (observed && observed.setupErrors) || [];
+  // 로스터도 없고 오류 신호도 없으면 로드 여부를 알 방법이 없다.
+  // 그것을 통과로 찍으면 깨진 배포를 정상으로 본다 (F3의 원인).
+  const rolesLoadUnobservable =
+    observed && observed.rolesLoadedObservable === false && setupErrors.length === 0;
   const roleLoadErrors = setupErrors.filter(function (message) {
     return /malformed agent role|deserialize agent role|agent role file/i.test(String(message));
   });
-  findings.push(
-    finding(
-      "setup.roles_loaded",
-      roleLoadErrors.length === 0,
-      roleLoadErrors.length === 0
-        ? "역할 정의 로드 오류 없음"
-        : roleLoadErrors.length + "건: " + String(roleLoadErrors[0]).slice(0, 120)
-    )
-  );
+  if (rolesLoadUnobservable) {
+    findings.push(
+      notObserved(
+        "setup.not_observable",
+        "실행 스트림에 역할 목록도 로드 오류도 없어 로드 여부는 판정하지 않는다"
+      )
+    );
+  } else {
+    findings.push(
+      finding(
+        "setup.roles_loaded",
+        roleLoadErrors.length === 0,
+        roleLoadErrors.length === 0
+          ? "역할 정의 로드 오류 없음"
+          : roleLoadErrors.length + "건: " + String(roleLoadErrors[0]).slice(0, 120)
+      )
+    );
+  }
 
   const steps = (observed && observed.steps) || 0;
   const maxSteps = (expectation && expectation.max_steps) || 12;
@@ -383,6 +469,7 @@ function classifyFailure(check) {
 }
 
 module.exports = {
+  findOutOfScopeViolations: findOutOfScopeViolations,
   NEEDS_VOCABULARY: NEEDS_VOCABULARY,
   ENVELOPE_FIELDS: ENVELOPE_FIELDS,
   parseEnvelope: parseEnvelope,
