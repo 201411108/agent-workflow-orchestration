@@ -1,0 +1,49 @@
+{
+  "startedAt": "2026-09-28T15:52:08.302Z",
+  "target": "claude",
+  "dryRun": false,
+  "runs": 3,
+  "cases": [
+    {
+      "id": "R7",
+      "name": "외부 근거가 필요한 기획",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-analyst"
+          ],
+          "roleDispatches": 2,
+          "toolCalls": 11,
+          "failures": []
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "rolesSelected": [
+            "role-analyst",
+            "role-orchestrator"
+          ],
+          "roleDispatches": 2,
+          "toolCalls": 12,
+          "failures": []
+        },
+        {
+          "attempt": 3,
+          "ok": true,
+          "rolesSelected": [
+            "role-analyst"
+          ],
+          "roleDispatches": 1,
+          "toolCalls": 12,
+          "failures": []
+        }
+      ],
+      "passRate": "3/3",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "39/39",
+  "notJudged": 3
+}
