@@ -46,6 +46,18 @@ The documents are not one-time handoffs. They can be revised during development 
 
 Multiple targets can be installed in one project. Their role files read the same harness-neutral specs and continuity state.
 
+**How much a target enforces differs, and the contract text is the same either way.**
+Run `doctor` to see what your target actually enforces.
+
+| Target | Per-role tool allowlist | Notes |
+|--------|------------------------|-------|
+| `claude` | Enforced — rendered into each subagent's `tools:` | Skills are all-or-nothing: withholding the `Skill` tool is the only boundary the runtime honors |
+| `codex` | **Not enforced** — only `sandbox_mode` and `web_search` exist | A role's `required_tools` is contract text |
+| `cursor` | **Not enforced** — no mapping is configured | Contracts pass through verbatim; `required_tools` is contract text |
+
+No role is granted a subagent-spawning tool on any target. A role that needs
+another role returns `needs` and the orchestrator assigns it.
+
 ## Install
 
 ```bash

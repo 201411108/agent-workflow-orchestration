@@ -162,7 +162,116 @@ function makeProject(spec, targetName) {
   if (targetName === "codex") {
     assertCodexTrust(dir);
   }
+  if (targetName === "claude") {
+    installToolHook(dir);
+  }
   return dir;
+}
+
+// 서브에이전트의 도구 호출을 관찰할 경로 (F1).
+//
+// 부모 스트림에는 서브에이전트 내부 도구 호출이 없다. 그래서 tools.declared_only가
+// 입력 없이 통과로 보고됐고, 감사에서 공허한 검사로 분류됐다.
+//
+// PreToolUse 훅은 그것을 본다. 실측한 payload에 agent_type이 실려 온다 —
+// 즉 어느 역할이 어떤 도구를 썼는지 귀속된다. 부모 세션의 호출에는 agent_type이 없다.
+//
+//   {"tool_name":"Read","agent_type":"role-researcher","agent_id":"a7689..."}
+//
+// 로그는 픽스처 **밖에** 둔다. 안에 두면 git 변경으로 잡혀 범위 이탈 판정을 오염시킨다.
+function toolLogPathFor(projectDir) {
+  return path.join(os.tmpdir(), "agent-workflow-toollog-" + path.basename(projectDir) + ".jsonl");
+}
+
+function installToolHook(projectDir) {
+  const logPath = toolLogPathFor(projectDir);
+  const settingsPath = path.join(projectDir, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  const settings = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              type: "command",
+              // payload 전체를 한 줄씩 append한다. 파싱은 관찰 단계에서 한다.
+              command: 'cat >> "' + logPath + '"; echo >> "' + logPath + '"',
+            },
+          ],
+        },
+      ],
+    },
+  };
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+}
+
+// 배포된 역할 파일의 tools frontmatter가 그 역할의 허용 목록이다.
+// manifest에서 다시 계산하지 않는다 — 진실 원본이 둘이 되고, 판정 대상은
+// "실제로 배포된 것"이어야 한다 (D17).
+function deployedToolAllowlist(projectDir, roleName) {
+  const file = path.join(projectDir, ".claude", "agents", roleName + ".md");
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  const frontmatter = fs.readFileSync(file, "utf8").match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatter) {
+    return null;
+  }
+  const line = frontmatter[1].split("\n").find((entry) => entry.startsWith("tools:"));
+  if (!line) {
+    return [];
+  }
+  return line
+    .slice("tools:".length)
+    .split(",")
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+}
+
+// 훅 로그를 읽어 역할별 미선언 도구를 낸다.
+function readUndeclaredTools(projectDir) {
+  const logPath = toolLogPathFor(projectDir);
+  if (!fs.existsSync(logPath)) {
+    return { observable: false, undeclared: [], byRole: {} };
+  }
+  const byRole = {};
+  for (const line of fs.readFileSync(logPath, "utf8").split("\n")) {
+    if (line.trim() === "") continue;
+    let payload;
+    try {
+      payload = JSON.parse(line);
+    } catch (error) {
+      continue;
+    }
+    // agent_type이 없으면 부모 세션의 호출이다. 역할 계약의 대상이 아니다.
+    const roleName = payload.agent_type;
+    if (!roleName || !/^role-[a-z]+$/.test(roleName)) {
+      continue;
+    }
+    if (!byRole[roleName]) {
+      byRole[roleName] = new Set();
+    }
+    byRole[roleName].add(String(payload.tool_name));
+  }
+  const undeclared = [];
+  for (const roleName of Object.keys(byRole)) {
+    const allowed = deployedToolAllowlist(projectDir, roleName);
+    if (allowed === null) {
+      continue;
+    }
+    for (const toolName of byRole[roleName]) {
+      // Skill 계열 내부 도구나 하네스가 자체적으로 끼우는 것은 역할 선언 대상이 아니다.
+      // 허용 목록에 없는 것만 보고하고, 판정은 이름 일치로만 한다.
+      if (!allowed.includes(toolName)) {
+        undeclared.push(roleName + ":" + toolName);
+      }
+    }
+  }
+  // 서브에이전트 호출을 하나도 못 봤으면 판정 대상이 없다.
+  // 이때 observable: true로 두면 빈 판정이 통과로 세어진다 — 방금 고친 F1과 같은
+  // 실패 모드다. 위임이 없는 케이스(R2·R3·R5)도 여기로 온다.
+  return { observable: Object.keys(byRole).length > 0, undeclared, byRole };
 }
 
 // stream-json 이벤트에서 역할 호출과 도구 사용을 관찰한다.
@@ -519,11 +628,18 @@ function runCase(spec, dryRun, targetName) {
     ? judge.findOutOfScopeViolations(observed.changedFiles || [], envelope.out_of_scope)
     : [];
 
-  // F1: 부모 스트림에 서브에이전트 내부 도구 호출이 없다. 관찰 경로가 없으므로
-  // 통과로 찍지 않고 미판정으로 분리한다.
+  // F1: PreToolUse 훅이 서브에이전트 도구 호출을 agent_type과 함께 싣는다.
+  // 훅을 설치하지 않는 타깃에서는 관찰 경로가 없으므로 미판정으로 남는다.
+  const toolObservation =
+    targetName === "claude" ? readUndeclaredTools(projectDir) : { observable: false, undeclared: [] };
+  if (targetName === "claude" && !toolObservation.observable) {
+    // 훅은 설치했는데 서브에이전트 호출을 못 봤다 — 위임이 없었거나 훅이 안 돌았다.
+    // 둘 다 "판정하지 않았다"이며 통과가 아니다.
+    toolObservation.undeclared = [];
+  }
   const runObservation = {
-    undeclaredTools: [],
-    toolsObservable: false,
+    undeclaredTools: toolObservation.undeclared,
+    toolsObservable: toolObservation.observable,
     outOfScopeViolations,
     scopeObservable,
     steps: observed.steps,
@@ -684,7 +800,14 @@ function main() {
   }
 }
 
-module.exports = { observe: observe, parseCase: parseCase };
+module.exports = {
+  observe: observe,
+  parseCase: parseCase,
+  readUndeclaredTools: readUndeclaredTools,
+  deployedToolAllowlist: deployedToolAllowlist,
+  toolLogPathFor: toolLogPathFor,
+  installToolHook: installToolHook,
+};
 
 // require로 불러올 때는 실행하지 않는다 (테스트가 observe만 쓴다).
 if (require.main === module) {

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The eval harness observes each role's tool calls through a `PreToolUse` hook,
+  which carries the role name, and compares them against the allowlist in that
+  role's deployed file. Undeclared tool use is now judged rather than skipped
+- `README` states, per target, whether a role's declared tools are actually
+  enforced. The contract text reads the same on all three; the enforcement does not
 - `doctor` inspects the contents of installed role files, not only their
   presence: Codex TOML is parsed, Claude and cursor frontmatter must declare the
   expected role name, and enum-valued keys are checked. A consumer whose install
