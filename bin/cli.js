@@ -1897,6 +1897,9 @@ function findDispatchOrder(manifest) {
   return { order, unreachable };
 }
 
+// validateSkill이 쓰는 역할 이름 목록. manifest에서 한 번 읽는다.
+let ALL_ROLE_NAMES_FOR_DONE_CHECK = [];
+
 function validateSkill(skillName, manifestEntry) {
   const skillFile = path.join(SOURCE_DIR, skillName, "SKILL.md");
   const failures = [];
@@ -1955,6 +1958,39 @@ function validateSkill(skillName, manifestEntry) {
     failures.push(
       `skills/${skillName}/SKILL.md contains a hardcoded role chain; dispatch must be computed from declarations (D2)`
     );
+  }
+
+  // Done Criteria의 판정 가능성 (1.3의 완료 기준을 실제로 검사 가능한 형태로).
+  //
+  // 원래 기준은 "모든 항목이 사람이 참/거짓을 판정할 수 있는 문장이다"였는데
+  // 기계 검사가 불가능하고 사람이 판정한 기록도 없었다 — 반증 불가능한 주장이었다.
+  // 전부를 기계로 볼 수는 없으므로, 판정을 막는 두 가지만 검사한다.
+  //   (1) 모호한 수식어 — 참/거짓이 읽는 사람에 따라 갈린다
+  //   (2) 타역할 지명 — 그 역할이 다음에 온다는 전제가 들어간다 (D16의 확장)
+  // 나머지는 사람이 한 번 읽고 기록한다 (PHASE1_AUDIT.md 참조).
+  const doneSection = contents.match(/## Done Criteria\n[\s\S]*?(?=\n## |$)/);
+  if (doneSection) {
+    for (const line of doneSection[0].split("\n")) {
+      if (!line.startsWith("- ")) {
+        continue;
+      }
+      // 인용된 예시는 제외한다. role-planner는 모호어를 금지하며 그것을 인용한다.
+      const withoutQuotes = line.replace(/"[^"]*"/g, "").replace(/`[^`]*`/g, "");
+      for (const vague of ["적절히", "충분히", "합리적으로", "가능하면", "필요시", "잘 "]) {
+        if (withoutQuotes.includes(vague)) {
+          failures.push(
+            `skills/${skillName}/SKILL.md Done Criteria uses a vague qualifier (${vague.trim()}); a done criterion must be true or false without interpretation`
+          );
+        }
+      }
+      for (const other of ALL_ROLE_NAMES_FOR_DONE_CHECK) {
+        if (other !== skillName && line.includes(other)) {
+          failures.push(
+            `skills/${skillName}/SKILL.md Done Criteria names another role (${other}); it presumes who comes next (D16)`
+          );
+        }
+      }
+    }
   }
 
   // D16: 역할은 다음 역할을 지명하지 않는다. 막힌 조건과 필요한 능력만 기술하고
@@ -2362,6 +2398,26 @@ function validateAdapter(adapter, manifest) {
 
     failures.push(...renderedContentFailures(adapter, role.name, rendered, adapterRoleNameTokens));
 
+    // 서브에이전트 부여 불변식 (D2·D16·D4, 2026-09-29 실측).
+    //
+    // 무제한 Agent를 부여하면 역할이 다른 역할을 직접 띄운다. 실측에서
+    // role-developer가 role-reviewer를 성공적으로 띄웠고, 반환값의 agentId로
+    // 대화를 이어갈 수 있었다. 그러면 배정은 오케스트레이터가 한다(D2·D16)와
+    // 에이전트 간 직접 대화는 불가능하다(D4)가 둘 다 깨진다.
+    //
+    // Agent(general-purpose)로 범위를 좁혀도 런타임이 강제하지 않는다. 좁힌 형태로
+    // 렌더한 뒤 재측정했더니 role-reviewer가 여전히 띄워졌고, 역할 자신이 불일치를
+    // 지적했다. 구문은 있고 의미가 없다 — D14의 skills:와 같은 패턴이다.
+    // 따라서 강제되는 상태는 부여하지 않는 것 하나뿐이고, 부여 자체를 실패로 본다.
+    const agentGrant = rendered
+      .split("\n")
+      .find((line) => line.startsWith("tools:") && /\bAgent\b/.test(line));
+    if (agentGrant) {
+      failures.push(
+        `adapter ${adapter.target} render for ${role.name} grants the Agent tool; a role could then dispatch other roles and talk to them directly (D2, D16, D4). Scoping is not enforced by the runtime, so the only enforceable state is withholding it`
+      );
+    }
+
     // 스킬 이진 게이트 불변식 (D14). 강제 가능한 것이 이것 하나이므로 반드시 검사한다.
     // 선언이 비어 있는데 Skill이 부여되면 그 역할은 환경 전체 스킬에 접근한다.
     const skillGate = resolveRoleSkills(adapter, role);
@@ -2443,6 +2499,8 @@ function validate() {
   if (!Array.isArray(manifest.roles) || manifest.roles.length === 0) {
     failures.push("agent-workflow.manifest.json must declare at least one role");
   }
+
+  ALL_ROLE_NAMES_FOR_DONE_CHECK = manifest.roles.map((entry) => entry.name);
 
   for (const role of manifest.roles) {
     if (!Array.isArray(role.consumes) || !Array.isArray(role.produces)) {
@@ -2905,6 +2963,21 @@ function doctor() {
     }
     findings.push(inspectInstalledRoleFiles(adapter, getManagedRoleFiles(adapter)));
   }
+
+  // 도구·스킬 경계가 이 타깃에서 강제되는지 소비자에게 알린다.
+  //
+  // 계약은 required_tools / optional_tools를 선언한다. 타깃에 바인딩 수단이 없으면
+  // 그 선언은 계약 문구일 뿐인데, 읽는 사람은 강제된다고 가정한다. cursor가 그렇다 —
+  // 1.1 조사 범위 밖이라 매핑이 없고 원문을 패스스루한다.
+  // validate는 개발자용이고 소비자는 돌릴 수 없으므로 여기서 말해야 한다.
+  const bindingEnforced = Boolean(adapter.tools);
+  findings.push({
+    label: "tool binding",
+    ok: bindingEnforced,
+    detail: bindingEnforced
+      ? `derived from role declarations and rendered natively (${adapter.target})`
+      : `not enforced on ${adapter.target}; required_tools/optional_tools in the contract are text only. ${adapter.toolBindingNote || ""}`.trim(),
+  });
   findings.push({
     label: workflow ? workflow.specsRoot : `${STATE_DIRNAME}/${CANONICAL_SPECS_SUBDIR}`,
     ok: fs.existsSync(paths.specsDir),

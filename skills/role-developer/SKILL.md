@@ -26,7 +26,6 @@ optional_tools:
   - text_search
   - lint_runner
   - test_runner
-  - task_subagent
 fallbacks:
   - lint/test 도구가 없으면 수행 불가를 명시하고 수동 검토 결과를 남긴다.
   - 프로젝트 규칙 파일이 없으면 인접 코드 패턴을 우선 규칙으로 사용한다.
@@ -177,7 +176,10 @@ out_of_scope: [이번 실행에서 건드리지 않은 영역]
 
 - `text_search`: 유사 구현, 재사용 가능한 유틸리티, 프로젝트 명령을 찾는다.
 - `lint_runner`, `test_runner`: 실제로 실행한 명령과 결과만 `verification`에 기록한다.
-- `task_subagent`: 큰 변경에서만 쓰고, 즉시 필요한 탐색은 직접 수행한다.
+
+이 역할은 서브에이전트를 띄우지 않는다. 큰 변경이라도 직접 수행하고, 다른 역할이
+필요하면 `## Stop Conditions`에 따라 `needs`로 반환한다. 배정은 오케스트레이터의
+책임이다.
 
 ## Fallback Rules
 

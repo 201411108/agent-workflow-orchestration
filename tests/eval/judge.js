@@ -384,7 +384,7 @@ function judgeRun(observed, expectation) {
     findings.push(
       notObserved(
         "tools.not_observable",
-        "부모 스트림에 서브에이전트 도구 호출이 없어 도구 경계는 판정하지 않는다"
+        "관찰된 서브에이전트 도구 호출이 없어 도구 경계는 판정하지 않는다"
       )
     );
   } else {

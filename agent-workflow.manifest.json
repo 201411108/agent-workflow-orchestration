@@ -147,8 +147,7 @@
       "optionalTools": [
         "text_search",
         "lint_runner",
-        "test_runner",
-        "task_subagent"
+        "test_runner"
       ],
       "toolPolicy": "deny-by-default"
     },

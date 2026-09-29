@@ -36,12 +36,11 @@
     "browser": null,
     "lint_runner": "Bash",
     "test_runner": "Bash",
-    "task_subagent": "Agent",
     "structured_question": "AskUserQuestion"
   },
   "skillGrant": "Skill",
   "skillsKey": "skills",
-  "toolBindingNote": "서브에이전트 frontmatter의 tools 허용 목록으로 렌더링한다. browser는 네이티브 대응이 없다. 스킬은 이진 게이트만 강제된다 — Skill 도구를 부여하지 않으면 어떤 스킬도 호출할 수 없고, 부여하면 환경 전체 스킬에 접근한다. skills: 키는 preload이며 경계가 아니다(2026-09-28 실측, D14). 따라서 어떤 스킬만 쓰라는 제한은 계약 문구로만 존재한다.",
+  "toolBindingNote": "서브에이전트 frontmatter의 tools 허용 목록으로 렌더링한다. browser는 네이티브 대응이 없다. task_subagent는 매핑하지 않는다 — Agent 도구를 부여하면 역할이 다른 역할을 직접 띄울 수 있고 (2026-09-29 실측: role-developer가 role-reviewer를 띄웠다), 반환된 agentId로 대화까지 이어갈 수 있어 배정은 오케스트레이터가 한다는 D2·D16과 에이전트 간 직접 대화 금지인 D4가 함께 깨진다. Agent(general-purpose)로 범위를 좁혀도 런타임이 강제하지 않는다(실측). 강제되는 상태는 부여하지 않는 것 하나뿐이므로 그렇게 한다. 스킬도 같은 구조다 — Skill 도구를 부여하지 않으면 어떤 스킬도 호출할 수 없고, 부여하면 환경 전체 스킬에 접근한다. skills: 키는 preload이며 경계가 아니다(2026-09-28 실측, D14).",
   "writeCapableTools": [
     "Write",
     "Edit",

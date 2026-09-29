@@ -60,7 +60,6 @@
     "browser": null,
     "lint_runner": null,
     "test_runner": null,
-    "task_subagent": null,
     "structured_question": null
   },
   "skillGrant": null,

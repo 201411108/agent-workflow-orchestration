@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const judge = require("./judge");
+const runner = require("./run");
 
 let failures = 0;
 
@@ -341,6 +342,74 @@ expectCheck(
   false
 );
 fs.rmSync(initRoot, { recursive: true, force: true });
+
+
+// 23. F1 (2차): 훅 로그로 미선언 도구를 실제로 판정한다.
+//     이전에는 입력이 하드코딩된 빈 배열이어서 어떤 실행에서도 실패할 수 없었다.
+const hookRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-workflow-hook-"));
+fs.mkdirSync(path.join(hookRoot, ".claude", "agents"), { recursive: true });
+fs.writeFileSync(
+  path.join(hookRoot, ".claude", "agents", "role-researcher.md"),
+  "---\nname: role-researcher\ndescription: probe\ntools: Read, Glob, Grep\n---\n\n# body\n"
+);
+const logPath = runner.toolLogPathFor(hookRoot);
+fs.writeFileSync(
+  logPath,
+  [
+    // 부모 세션 호출 — agent_type이 없으므로 역할 계약 대상이 아니다
+    JSON.stringify({ tool_name: "Agent", session_id: "s1" }),
+    // 선언된 도구
+    JSON.stringify({ tool_name: "Read", agent_type: "role-researcher", agent_id: "a1" }),
+    // 선언되지 않은 도구 — 잡혀야 한다
+    JSON.stringify({ tool_name: "Bash", agent_type: "role-researcher", agent_id: "a1" }),
+    "",
+  ].join("\n")
+);
+const hookObs = runner.readUndeclaredTools(hookRoot);
+check("훅 로그를 읽어 관찰 가능으로 표시한다", hookObs.observable === true, JSON.stringify(hookObs.observable));
+check(
+  "미선언 도구를 잡는다",
+  hookObs.undeclared.length === 1 && hookObs.undeclared[0] === "role-researcher:Bash",
+  JSON.stringify(hookObs.undeclared)
+);
+check(
+  "선언된 도구는 잡지 않는다",
+  !hookObs.undeclared.some((entry) => entry.endsWith(":Read")),
+  JSON.stringify(hookObs.undeclared)
+);
+check(
+  "부모 세션 호출(agent_type 없음)은 역할에 귀속하지 않는다",
+  !hookObs.undeclared.some((entry) => entry.endsWith(":Agent")),
+  JSON.stringify(hookObs.undeclared)
+);
+expectCheck(
+  "미선언 도구가 있으면 실패로 판정",
+  judge.judgeRun(
+    { rolesSelected: [], undeclaredTools: hookObs.undeclared, toolsObservable: true, steps: 1 },
+    {}
+  ),
+  "tools.declared_only",
+  false
+);
+
+// 배포된 허용 목록을 읽는 경로 — manifest가 아니라 실제 렌더를 본다 (D17)
+check(
+  "배포된 tools frontmatter를 허용 목록으로 읽는다",
+  JSON.stringify(runner.deployedToolAllowlist(hookRoot, "role-researcher")) ===
+    JSON.stringify(["Read", "Glob", "Grep"]),
+  JSON.stringify(runner.deployedToolAllowlist(hookRoot, "role-researcher"))
+);
+
+// 서브에이전트 호출을 못 봤으면 통과가 아니라 미판정이다
+fs.writeFileSync(logPath, JSON.stringify({ tool_name: "Agent", session_id: "s1" }) + "\n");
+const emptyObs = runner.readUndeclaredTools(hookRoot);
+check(
+  "서브에이전트 호출이 없으면 미판정이다 (빈 판정을 통과로 세지 않는다)",
+  emptyObs.observable === false,
+  "observable=" + emptyObs.observable
+);
+fs.rmSync(logPath, { force: true });
+fs.rmSync(hookRoot, { recursive: true, force: true });
 
 if (failures > 0) {
   console.error("\nJudge test failed: " + failures + " issue(s).\n");

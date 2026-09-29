@@ -1,0 +1,29 @@
+{
+  "startedAt": "2026-09-29T04:36:24.630Z",
+  "target": "claude",
+  "dryRun": false,
+  "runs": 1,
+  "cases": [
+    {
+      "id": "R1",
+      "name": "문서 없는 신규 기능",
+      "runs": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "rolesSelected": [
+            "role-orchestrator",
+            "role-planner"
+          ],
+          "roleDispatches": 2,
+          "toolCalls": 10,
+          "failures": []
+        }
+      ],
+      "passRate": "1/1",
+      "invalidRuns": 0
+    }
+  ],
+  "checkPassRate": "6/6",
+  "notJudged": 0
+}
